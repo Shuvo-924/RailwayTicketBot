@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+
+playwright-profile/
+browser-data/
+
+*.db
+
+brave-profile/
+*.log
