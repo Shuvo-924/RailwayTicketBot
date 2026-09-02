@@ -1,0 +1,32 @@
+name: Search Train Tickets
+
+on:
+  repository_dispatch:
+    types: [search_ticket]
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable xvfb
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+      - name: Run search
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RAILWAY_PHONE: ${{ secrets.RAILWAY_PHONE }}
+          RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
+        run: python bot_backup.py

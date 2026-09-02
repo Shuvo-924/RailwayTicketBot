@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import platform
 import threading
 import subprocess
 import time
@@ -28,6 +29,15 @@ RAILWAY_URL = "https://eticket.railway.gov.bd/"
 
 DYNAMIC_CHECK_SECONDS = 5
 HARD_REFRESH_SECONDS = 60
+
+# Paths (adjust as needed)
+BRAVE_PATH = r"C:\Users\USER\AppData\Local\BraveSoftware\Brave-Browser\Application\brave.exe"
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+BRAVE_PROFILE = r"C:\Users\USER\RailwayTicketBot\brave-profile"  # Windows profile dir
+
+# On Linux, use a profile directory in home or /tmp
+if platform.system().lower() == "linux":
+    BRAVE_PROFILE = os.path.join(os.path.expanduser("~"), "railway-bot-profile")
 
 # --- USER INPUT SECTION ---
 
@@ -97,11 +107,13 @@ def telegram_listener():
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
             response = requests.get(url, params={"offset": offset, "timeout": 20}, timeout=25).json()
-            if not response.get("ok"): continue
+            if not response.get("ok"):
+                continue
             for update in response["result"]:
                 offset = update["update_id"] + 1
                 msg = update.get("message")
-                if not msg: continue
+                if not msg:
+                    continue
                 chat_id = str(msg["chat"]["id"])
                 username = msg.get("from", {}).get("username", "Unknown")
                 text = msg.get("text", "").strip()
@@ -120,7 +132,7 @@ def telegram_listener():
 
 
 # ============================================================
-# BROWSER HELPERS (Playwright + separate CAPTCHA solver subprocess)
+# BROWSER HELPERS
 # ============================================================
 
 def dismiss_disclaimer(page):
@@ -157,9 +169,8 @@ def login_popup_visible(page):
 
 def solve_captcha_in_subprocess():
     """
-    Launches a subprocess that connects to the already running browser via CDP
-    and uses SeleniumBase's sb_cdp to solve the Turnstile CAPTCHA.
-    Tries multiple solving methods and prints output for debugging.
+    Launches a subprocess that connects via CDP and solves the Turnstile CAPTCHA.
+    Waits for the Turnstile iframe to appear before attempting to solve.
     """
     solver_script = f"""
 import sys
@@ -173,20 +184,36 @@ try:
     sb = sb_cdp.Chrome(cdp_url=cdp_url, headless=True)
     print("Connected successfully.", flush=True)
     try:
-        # Wait a bit for page to be ready
+        # Wait for page to settle
         sb.sleep(3)
+
+        # Wait for Turnstile iframe to appear (max 60 sec)
+        print("Waiting for Turnstile iframe...", flush=True)
+        found = False
+        for i in range(60):
+            if sb.is_element_present("iframe[src*='challenges.cloudflare.com']"):
+                found = True
+                print(f"Turnstile iframe found after {{i+1}} seconds.", flush=True)
+                break
+            sb.sleep(1)
+
+        if not found:
+            print("Turnstile iframe did not appear within 60 seconds.", flush=True)
+            sys.exit(1)
+
+        # Now attempt to solve
         print("Attempting to solve CAPTCHA...", flush=True)
-        # Try primary method
         try:
             sb.solve_captcha()
             print("solve_captcha() completed.", flush=True)
         except Exception as e:
             print(f"solve_captcha() failed: {{e}}", flush=True)
-            # Fallback: try clicking Turnstile checkbox manually via JS?
             print("Trying alternative: uc_gui_click_captcha()", flush=True)
             sb.uc_gui_click_captcha()
             print("uc_gui_click_captcha() completed.", flush=True)
-        sb.sleep(2)
+
+        # Wait for token to be generated
+        sb.sleep(5)
         print("CAPTCHA solving routine finished.", flush=True)
     finally:
         sb.driver.quit()
@@ -199,7 +226,7 @@ except Exception as e:
         [sys.executable, "-c", solver_script],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,  # to get strings instead of bytes
+        text=True,
     )
     return proc
 
@@ -212,61 +239,66 @@ def login(page):
 
     solver_proc = solve_captcha_in_subprocess()
 
-    # Wait for solver process to complete (max 90 seconds)
+    # Wait for either solver to finish OR login button to become enabled
     start_time = time.time()
-    solver_timeout = 90
-    while time.time() - start_time < solver_timeout:
-        if solver_proc.poll() is not None:
-            break
+    login_enabled = False
+    solver_done = False
+
+    while time.time() - start_time < 120:  # 2 minutes max
+        # Check if solver process has ended
+        if solver_proc.poll() is not None and not solver_done:
+            solver_done = True
+            out, err = solver_proc.communicate()
+            print("Solver process finished.")
+            if out:
+                print("Solver stdout:")
+                print(out)
+            if err:
+                print("Solver stderr:")
+                print(err)
+
+        # Check if login button is enabled
+        try:
+            if page.evaluate("""() => {
+                const btn = document.querySelector('#train-app-login-form button[type="submit"]');
+                return btn && !btn.disabled;
+            }"""):
+                login_enabled = True
+                break
+        except:
+            pass
+
+        if solver_done and not login_enabled:
+            time.sleep(1)
+            if time.time() - start_time > 90:
+                break
+
         time.sleep(1)
 
-    if solver_proc.poll() is None:
-        print("Solver process did not finish in time. Terminating.")
-        solver_proc.terminate()
-        return False
-
-    # Capture solver output for debugging
-    out, err = solver_proc.communicate()
-    print("Solver process finished.")
-    if out:
-        print("Solver stdout:")
-        print(out)
-    if err:
-        print("Solver stderr:")
-        print(err)
-
-    # Wait for LOGIN button to become enabled (up to 30 additional seconds)
-    print("Waiting for LOGIN button to become enabled...")
-    try:
-        page.wait_for_function(
-            """
-            () => {
-                const btn = document.querySelector(
-                    '#train-app-login-form button[type="submit"]'
-                );
-                return btn && !btn.disabled;
-            }
-            """,
-            timeout=30000,
-        )
-        print("LOGIN button is enabled.")
-    except Exception:
-        print("LOGIN button still disabled after 30 seconds. Trying fallback methods...")
-
-    # Attempt normal click
-    print("Clicking LOGIN...")
-    try:
-        page.locator("#train-app-login-form button[type='submit']").click(timeout=5000)
-    except Exception as e:
-        print(f"Normal click failed: {e}")
-        # Fallback: JS click
-        print("Trying JavaScript click...")
-        page.evaluate("""
-            () => {
-                const btn = document.querySelector('#train-app-login-form button[type="submit"]');
-                if (btn) btn.click();
-            }
-        """)
+    if not login_enabled:
+        print("LOGIN button not enabled automatically. Trying fallback methods...")
+        try:
+            page.locator("#train-app-login-form button[type='submit']").click(timeout=5000)
+        except:
+            print("Normal click failed, trying JS click...")
+            page.evaluate("""
+                () => {
+                    const btn = document.querySelector('#train-app-login-form button[type="submit"]');
+                    if (btn) btn.click();
+                }
+            """)
+        page.wait_for_timeout(3000)
+    else:
+        print("LOGIN button is enabled. Clicking...")
+        try:
+            page.locator("#train-app-login-form button[type='submit']").click(timeout=5000)
+        except:
+            page.evaluate("""
+                () => {
+                    const btn = document.querySelector('#train-app-login-form button[type="submit"]');
+                    if (btn) btn.click();
+                }
+            """)
 
     # Wait for login modal to disappear
     try:
@@ -323,10 +355,6 @@ def select_date(page, date_string):
     return True
 
 
-# ============================================================
-# PARSING LOGIC
-# ============================================================
-
 def get_seats_from_page(page):
     results = {}
     train_widgets = page.locator(".single-trip-wrapper")
@@ -359,10 +387,6 @@ def get_seats_from_page(page):
             continue
     return results
 
-
-# ============================================================
-# MONITORING
-# ============================================================
 
 def monitor_loop(page):
     print("\n" + "=" * 60)
@@ -414,32 +438,61 @@ def monitor_loop(page):
 
 
 # ============================================================
-# MAIN
+# MAIN (with Xvfb support)
 # ============================================================
-
-BRAVE_PATH = r"C:\Users\USER\AppData\Local\BraveSoftware\Brave-Browser\Application\brave.exe"
-CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-BRAVE_PROFILE = r"C:\Users\USER\RailwayTicketBot\brave-profile"
 
 def main():
     init_db()
     threading.Thread(target=telegram_listener, daemon=True).start()
 
-    # Launch Chrome/Brave with remote debugging
-    browser_process = subprocess.Popen([
-        CHROME_PATH,                # or BRAVE_PATH if you prefer
-        "--remote-debugging-port=9222",
-        f"--user-data-dir={BRAVE_PROFILE}",
-        "--remote-allow-origins=*",
-        "--window-size=1920,1080",
-        #"--headless=new",         # optional: run without visible window
-    ])
-    print("Starting browser...")
+    # Detect operating system
+    system = platform.system().lower()
+
+    if system == "linux":
+        # Determine Chrome path
+        chrome_path = None
+        for candidate in ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]:
+            if os.path.exists(candidate):
+                chrome_path = candidate
+                break
+        if not chrome_path:
+            print("Chrome/Chromium not found. Please install it.")
+            return
+
+        # Use xvfb-run to provide a virtual display
+        launch_cmd = [
+            "xvfb-run", "-a", chrome_path,
+            "--remote-debugging-port=9222",
+            f"--user-data-dir={BRAVE_PROFILE}",
+            "--remote-allow-origins=*",
+            "--window-size=1920,1080",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+        ]
+    else:
+        # Windows or others
+        if os.path.exists(CHROME_PATH):
+            browser_exe = CHROME_PATH
+        elif os.path.exists(BRAVE_PATH):
+            browser_exe = BRAVE_PATH
+        else:
+            print("Chrome/Brave not found.")
+            return
+
+        launch_cmd = [
+            browser_exe,
+            "--remote-debugging-port=9222",
+            f"--user-data-dir={BRAVE_PROFILE}",
+            "--remote-allow-origins=*",
+            "--window-size=1920,1080",
+        ]
+
+    print(f"Launching browser (OS: {system})...")
+    browser_process = subprocess.Popen(launch_cmd)
     time.sleep(5)  # give it time to open
 
     with sync_playwright() as p:
         try:
-            # Connect Playwright to the running browser via CDP
             browser = p.chromium.connect_over_cdp(CDP_URL)
             context = browser.contexts[0]
             page = context.pages[0] if context.pages else context.new_page()
