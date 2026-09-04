@@ -15,15 +15,42 @@ on:
 jobs:
   run-search:
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright/python:v1.45.0-jammy
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python API Libraries
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # This automatically caches your pip packages based on requirements.txt
+          cache: 'pip'
+
+      # 1. Cache Playwright Browsers (The biggest download)
+      - name: Cache Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # 2. Install System Dependencies (Including the required tkinter)
+      - name: Install System Dependencies
         run: |
-          pip install playwright seleniumbase supabase requests python-dotenv nest_asyncio
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm-dev python3-tk python3-dev google-chrome-stable
+
+      # 3. Install Python Dependencies from requirements.txt
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Install Playwright Browsers ONLY if not restored from cache
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
 
       - name: Run Monitor
         env:
