@@ -549,7 +549,7 @@ def monitor_loop(page):
                         FOUND = True
                         update_job_status("completed", {"found": True})
                                             
-                    if count > 0 and count != previous_count:
+                    if count > 0 and count != previous_count and FOUND is False:
                         print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
 
                         message = build_ticket_message(train, class_name, count)

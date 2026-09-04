@@ -826,82 +826,73 @@ def process_search_message(chat_id, username, text):
             job_id = str(uuid.uuid4())
             is_priv = state.get("is_private", False)
 
-            # Create Job
-            supabase.table("monitoring_jobs").insert(
-                {
-                    "id": job_id,
-                    "chat_id": chat_id,
-                    "username": username,
-                    "from_station": state["from_station"],
-                    "to_station": state["to_station"],
-                    "journey_date": state["journey_date"],
-                    "seat_class": state["seat_class"],
-                    "is_private": is_priv,
-                    "status": "starting",
-                }
-            ).execute()
+            # 1. Create Job in Supabase
+            supabase.table("monitoring_jobs").insert({
+                "id": job_id,
+                "chat_id": chat_id,
+                "username": username,
+                "from_station": state["from_station"],
+                "to_station": state["to_station"],
+                "journey_date": state["journey_date"],
+                "seat_class": state["seat_class"],
+                "is_private": is_priv,
+                "status": "starting",
+            }).execute()
 
-            # Dispatch to GitHub
-            # Use User Credentials if private, otherwise use Admin credentials
+            # 2. Prepare credentials
             phone = state.get("phone", os.getenv("RAILWAY_PHONE"))
             password = state.get("password", os.getenv("RAILWAY_PASSWORD"))
 
             send_message(
                 chat_id,
-                f"Dispatching job (private: {is_priv})\nPlease wait for the monitor to start...",
+                f"🚀 Dispatching { 'Private' if is_priv else 'Shared' } job...\nPlease wait for the cloud engine to start."
             )
 
+            # 3. Dispatch to GitHub
             dispatched = dispatch_github_workflow(
-                job_id,
-                chat_id,
-                username,
-                state["from_station"],
-                state["to_station"],
-                state["journey_date"],
-                state["seat_class"],
-                phone,
-                password,  # Pass these to the dispatch function
+                job_id, chat_id, username,
+                state["from_station"], state["to_station"],
+                state["journey_date"], state["seat_class"],
+                phone, password
             )
 
             if dispatched:
-                # CRITICAL: Delete sensitive info from memory and DB immediately
+                # 4. Success Flow
                 if is_priv:
                     send_message(
                         chat_id,
-                        "🔒 Private session dispatched. Your credentials have been purged from our database.",
+                        "🔒 Private session dispatched. Your credentials have been purged from our database."
                     )
-                clear_state(chat_id)
-                return True
-
-            supabase.table("monitoring_jobs").update({"status": "queued"}).eq(
-                "id", job_id
-            ).execute()
-
-            send_message(
-                chat_id,
-                "✅ Monitor started!\n\n"
-                f"Job ID:\n{job_id}\n\n"
-                f"🚆 {state['from_station']} → "
-                f"{state['to_station']}\n"
-                f"📅 {state['journey_date']}\n"
-                f"💺 {state['class_display']}\n\n"
-                "I'll notify you here when tickets are found.",
-                reply_markup=main_menu(),
-            )
+                
+                # Send the final confirmation message
+                send_message(
+                    chat_id,
+                    "✅ Monitor started!\n\n"
+                    f"Job ID:\n`{job_id}`\n\n"
+                    f"🚆 {state['from_station']} → {state['to_station']}\n"
+                    f"📅 {state['journey_date']}\n"
+                    f"💺 {state['class_display']}\n\n"
+                    "I'll notify you here the moment tickets are found.",
+                    reply_markup=main_menu()
+                )
+            else:
+                # 5. Failure Flow
+                supabase.table("monitoring_jobs").update({"status": "failed"}).eq("id", job_id).execute()
+                send_message(
+                    chat_id, 
+                    "❌ Failed to start the cloud engine. Please try again later or contact admin.",
+                    reply_markup=main_menu()
+                )
 
             clear_state(chat_id)
-
             return True
 
         if text.upper() in ("NO", "N", "CANCEL"):
             clear_state(chat_id)
-
             send_message(chat_id, "❌ Search cancelled.", reply_markup=main_menu())
-
             return True
 
         send_message(chat_id, "Please type YES to start or NO to cancel.")
-
         return True
 
     return False
