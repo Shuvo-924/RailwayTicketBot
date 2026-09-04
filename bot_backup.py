@@ -477,6 +477,7 @@ def build_ticket_message(train, class_name, count):
 # ============================================================
 
 STOP_REQUESTED = False
+Found = False
 
 
 def handle_shutdown_signal(signum, frame):
@@ -520,6 +521,12 @@ def monitor_loop(page):
             update_job_status("cancelled")
 
             return
+        if Found:
+            print("\n🛑 Desired ticket found. Monitoring stopped.")
+
+            update_job_status("completed")
+
+            return
 
         try:
             data = get_seats_from_page(page)
@@ -534,6 +541,12 @@ def monitor_loop(page):
                     # 0 -> available
                     # OR
                     # available count changes
+                    if count > 0 and class_name in TARGET_CLASSES:
+                        print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
+                        message = build_ticket_message(train, class_name, count)
+                        notify_user(message)
+                        print("Desired ticket found. Stopping monitoring.")
+                                            
                     if count > 0 and count != previous_count:
                         print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
 
@@ -542,12 +555,7 @@ def monitor_loop(page):
                         notify_user(message)
 
                     previous_state[key] = count
-                    if count > 0 and class_name in TARGET_CLASSES:
-                        print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
-                        message = build_ticket_message(train, class_name, count)
-                        notify_user(message)
-                        print("Desired ticket found. Stopping monitoring.")
-                        break
+                    
 
             current_time = time.strftime("%H:%M:%S")
 
