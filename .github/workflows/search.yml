@@ -23,6 +23,12 @@ on:
       seat_class:
         description: 'Class Regex'
         required: true
+      user_phone:
+        description: 'Phone for session'
+        required: false
+      user_pass:
+        description: 'Password for session'
+        required: false  
 
 jobs:
   run-search:
@@ -56,6 +62,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          RAILWAY_PHONE: ${{ secrets.RAILWAY_PHONE }}
-          RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
+          RAILWAY_PHONE: ${{ github.event.inputs.user_phone || secrets.RAILWAY_PHONE }}
+          RAILWAY_PASSWORD: ${{ github.event.inputs.user_pass || secrets.RAILWAY_PASSWORD }}
         run: xvfb-run -a python bot_backup.py

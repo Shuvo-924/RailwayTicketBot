@@ -593,9 +593,9 @@ def monitor_loop(page):
             if time.time() - refresh_start >= HARD_REFRESH_SECONDS:
                 print("\n\n🔄 Reloading page...")
 
-                page.reload(wait_until="domcontentloaded", timeout=30000)
+                page.reload(wait_until="domcontentloaded", timeout=60000)
 
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(5000)
 
                 dismiss_disclaimer(page)
 
@@ -673,6 +673,8 @@ def main():
 
     init_db()
     register_github_run()
+    USER_PHONE = os.getenv("user_phone") or os.getenv("RAILWAY_PHONE")
+    USER_PASS = os.getenv("user_pass") or os.getenv("RAILWAY_PASSWORD")
 
     with SB(uc=True, xvfb=True, locale="en") as sb:
         try:
@@ -688,8 +690,8 @@ def main():
 
             print("Filling credentials...")
             sb.wait_for_element_visible("#mobile_number", timeout=10)
-            sb.type("#mobile_number", RAILWAY_PHONE)
-            sb.type("#password", RAILWAY_PASSWORD)  # correct password field id
+            sb.type("#mobile_number", USER_PHONE)
+            sb.type("#password", USER_PASS)  # correct password field id
 
             print("🧩 Solving CAPTCHA...")
             sb.uc_gui_click_captcha()
@@ -731,7 +733,7 @@ def main():
                     page.locator("#choose_class").select_option(TARGET_CLASSES[0])
                     page.locator("button:has-text('SEARCH TRAINS')").first.click()
                     try:
-                        page.wait_for_selector(".single-trip-wrapper", timeout=60000)
+                        page.wait_for_selector(".single-trip-wrapper", timeout=90000)
                     except:
                         print("Waiting for results widgets...")
                     monitor_loop(page)
