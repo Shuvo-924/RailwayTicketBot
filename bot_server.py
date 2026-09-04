@@ -1,104 +1,1984 @@
 import os
+import re
 import time
+import uuid
+import secrets
+import smtplib
+import threading
 import requests
+
+from datetime import datetime, timedelta
+from email.message import EmailMessage
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from supabase import create_client
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
-# --- CONFIGURATION ---
+
+# ============================================================
+# CONFIG
+# ============================================================
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ADMIN_ID = str(os.getenv("TELEGRAM_CHAT_ID")) # Ensure it's a string for comparison
+ADMIN_ID = str(os.getenv("TELEGRAM_CHAT_ID", ""))
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_OWNER = os.getenv("GITHUB_OWNER", "Shuvo-924")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "RailwayTicketBot")
+GITHUB_WORKFLOW = os.getenv(
+    "GITHUB_WORKFLOW",
+    "search.yml"
+)
+GITHUB_REF = os.getenv("GITHUB_REF", "main")
 
-def telegram_listener():
-    print("🚀 Telegram Cloud Backend Started...")
-    offset = 0
-    start_time = time.time()
 
-    # GitHub Actions timeout is 6 hours. 
-    # We run for 5 hours and 30 mins (19800 seconds) then exit cleanly.
-    while (time.time() - start_time) < 19800:
+# Email configuration
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD")
+
+
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+# SUST student email:
+# Example:
+# 2023331XXX@student.sust.edu
+#
+# Currently requiring exactly 10 digits before @.
+SUST_EMAIL_REGEX = re.compile(
+    r"^[0-9]{10}@student\.sust\.edu$",
+    re.IGNORECASE
+)
+
+
+VERIFICATION_EXPIRY_MINUTES = 10
+MAX_VERIFICATION_ATTEMPTS = 5
+
+
+# Temporary conversation state.
+#
+# Example:
+#
+# USER_STATES[chat_id] = {
+#     "step": "email",
+#     "email": "...",
+#     "code": "123456",
+#     ...
+# }
+#
+# This is only temporary state.
+# Actual verified users/jobs are stored in Supabase.
+USER_STATES = {}
+
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Railway Monitor Bot is alive")
+
+    def log_message(self, format, *args):
+        # Don't spam logs with health checks
+        return
+
+
+def run_health_server():
+
+    port = int(os.environ.get("PORT", 8080))
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthCheckHandler
+    )
+
+    print(f"Health check server running on port {port}")
+
+    server.serve_forever()
+
+
+# ============================================================
+# TELEGRAM HELPERS
+# ============================================================
+
+def telegram_request(method, payload=None):
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_TOKEN}/{method}"
+    )
+
+    try:
+
+        response = requests.post(
+            url,
+            json=payload or {},
+            timeout=20
+        )
+
+        return response.json()
+
+    except Exception as e:
+
+        print(f"Telegram error: {e}")
+
+        return {
+            "ok": False
+        }
+
+
+def send_message(chat_id, text, reply_markup=None):
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    return telegram_request(
+        "sendMessage",
+        payload
+    )
+
+
+# ============================================================
+# MAIN MENU
+# ============================================================
+
+def main_menu():
+
+    return {
+        "keyboard": [
+            [
+                {
+                    "text": "🚆 New Search"
+                },
+                {
+                    "text": "📋 My Searches"
+                }
+            ],
+            [
+                {
+                    "text": "❌ Cancel Search"
+                },
+                {
+                    "text": "ℹ️ Help"
+                }
+            ]
+        ],
+        "resize_keyboard": True
+    }
+
+
+# ============================================================
+# EMAIL
+# ============================================================
+
+def send_verification_email(email, code):
+
+    if not SMTP_EMAIL or not SMTP_APP_PASSWORD:
+
+        print(
+            "ERROR: SMTP_EMAIL or SMTP_APP_PASSWORD "
+            "is not configured."
+        )
+
+        return False
+
+
+    message = EmailMessage()
+
+    message["Subject"] = "Railway Monitor - Verification Code"
+    message["From"] = SMTP_EMAIL
+    message["To"] = email
+
+    message.set_content(
+        f"""Hello,
+
+Your Railway Ticket Monitor verification code is:
+
+{code}
+
+This code will expire in {VERIFICATION_EXPIRY_MINUTES} minutes.
+
+If you did not request this code, you can safely ignore this email.
+
+Railway Ticket Monitor
+"""
+    )
+
+
+    try:
+
+        with smtplib.SMTP_SSL(
+            SMTP_HOST,
+            SMTP_PORT
+        ) as server:
+
+            server.login(
+                SMTP_EMAIL,
+                SMTP_APP_PASSWORD
+            )
+
+            server.send_message(message)
+
+
+        print(
+            f"Verification email sent to {email}"
+        )
+
+        return True
+
+
+    except Exception as e:
+
+        print(
+            f"Failed to send verification email: {e}"
+        )
+
+        return False
+
+
+# ============================================================
+# VERIFICATION CODE
+# ============================================================
+
+def generate_verification_code():
+
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def create_verification(chat_id, email):
+
+    code = generate_verification_code()
+
+    expires_at = (
+        datetime.utcnow()
+        + timedelta(
+            minutes=VERIFICATION_EXPIRY_MINUTES
+        )
+    ).isoformat()
+
+
+    # Remove previous codes for this chat/email
+    try:
+
+        supabase.table(
+            "verification_codes"
+        ).delete().eq(
+            "chat_id",
+            chat_id
+        ).execute()
+
+    except Exception as e:
+
+        print(
+            f"Could not remove old verification codes: {e}"
+        )
+
+
+    # Store new code
+    try:
+
+        supabase.table(
+            "verification_codes"
+        ).insert({
+            "chat_id": chat_id,
+            "email": email,
+            "code": code,
+            "expires_at": expires_at,
+            "attempts": 0
+        }).execute()
+
+    except Exception as e:
+
+        print(
+            f"Could not store verification code: {e}"
+        )
+
+        return False
+
+
+    return send_verification_email(
+        email,
+        code
+    )
+
+
+def verify_code(chat_id, code, username):
+
+    try:
+
+        result = supabase.table(
+            "verification_codes"
+        ).select("*").eq(
+            "chat_id",
+            chat_id
+        ).order(
+            "created_at",
+            desc=True
+        ).limit(1).execute()
+
+
+        if not result.data:
+
+            return False, "No verification code found."
+
+
+        verification = result.data[0]
+
+
+        # ----------------------------------------------------
+        # Check attempts
+        # ----------------------------------------------------
+
+        attempts = verification.get(
+            "attempts",
+            0
+        )
+
+        if attempts >= MAX_VERIFICATION_ATTEMPTS:
+
+            return False, (
+                "Too many incorrect attempts.\n\n"
+                "Please request a new code."
+            )
+
+
+        # ----------------------------------------------------
+        # Check expiry
+        # ----------------------------------------------------
+
+        expires_at = datetime.fromisoformat(
+            verification["expires_at"]
+        )
+
+        # Handle timestamps ending with Z
+        if expires_at.tzinfo:
+            now = datetime.now(expires_at.tzinfo)
+        else:
+            now = datetime.utcnow()
+
+
+        if now > expires_at:
+
+            return False, (
+                "⏰ This verification code has expired.\n\n"
+                "Please request a new one."
+            )
+
+
+        # ----------------------------------------------------
+        # Check code
+        # ----------------------------------------------------
+
+        if code.strip() != verification["code"]:
+
+            supabase.table(
+                "verification_codes"
+            ).update({
+                "attempts": attempts + 1
+            }).eq(
+                "chat_id",
+                chat_id
+            ).execute()
+
+
+            remaining = (
+                MAX_VERIFICATION_ATTEMPTS
+                - attempts
+                - 1
+            )
+
+
+            return False, (
+                "❌ Incorrect verification code.\n\n"
+                f"Attempts remaining: {remaining}"
+            )
+
+
+        # ----------------------------------------------------
+        # SUCCESS
+        # ----------------------------------------------------
+
+        email = verification["email"]
+
+
+        # Mark subscriber as verified
+        supabase.table("subscribers").upsert({
+        "chat_id": chat_id,
+        "username": username, # Capture the actual username
+        "email": email,
+        "verified": True
+        }).execute()
+
+
+        # Delete used code
+        supabase.table(
+            "verification_codes"
+        ).delete().eq(
+            "chat_id",
+            chat_id
+        ).execute()
+
+
+        return True, email
+
+
+    except Exception as e:
+
+        print(
+            f"Verification error: {e}"
+        )
+
+        return False, "Verification failed."
+
+
+# ============================================================
+# CHECK USER VERIFICATION
+# ============================================================
+
+def get_verified_user(chat_id):
+
+    try:
+
+        result = supabase.table(
+            "subscribers"
+        ).select("*").eq(
+            "chat_id",
+            chat_id
+        ).eq(
+            "verified",
+            True
+        ).limit(1).execute()
+
+
+        if result.data:
+
+            return result.data[0]
+
+
+    except Exception as e:
+
+        print(
+            f"Could not check user verification: {e}"
+        )
+
+
+    return None
+
+
+# ============================================================
+# CLASS PARSER
+# ============================================================
+
+CLASS_ALIASES = {
+
+    "SNIGDHA": "SNIGDHA",
+    "SNIG": "SNIGDHA",
+
+    "S_CHAIR": "S_CHAIR",
+    "S CHAIR": "S_CHAIR",
+    "SCHAIR": "S_CHAIR",
+
+    "AC_B": "AC_B",
+    "AC B": "AC_B",
+
+    "AC_S": "AC_S",
+    "AC S": "AC_S",
+
+    "F_BERTH": "F_BERTH",
+    "F BERTH": "F_BERTH",
+
+    "F_SEAT": "F_SEAT",
+    "F SEAT": "F_SEAT",
+
+    "F_CHAIR": "F_CHAIR",
+    "F CHAIR": "F_CHAIR",
+}
+
+
+def parse_classes(text):
+
+    """
+    Examples:
+
+        Snigdha
+        S_Chair
+        Snigdha + S_Chair
+        Snigdha, S_Chair
+        Snigdha + AC_B + S_Chair
+
+    Returns:
+
+        [
+            "SNIGDHA",
+            "S_CHAIR"
+        ]
+
+    and:
+
+        "SNIGDHA|S_CHAIR"
+    """
+
+
+    # Allow +, comma, or semicolon
+    parts = re.split(
+        r"\s*(?:\+|,|;)\s*",
+        text.strip()
+    )
+
+
+    selected = []
+
+
+    for part in parts:
+
+        normalized = part.strip().upper()
+
+        if not normalized:
+            continue
+
+
+        if normalized not in CLASS_ALIASES:
+
+            return None
+
+
+        canonical = CLASS_ALIASES[
+            normalized
+        ]
+
+
+        if canonical not in selected:
+
+            selected.append(canonical)
+
+
+    if not selected:
+
+        return None
+
+
+    # This becomes the regex used by the monitor.
+    regex = "|".join(
+        re.escape(x)
+        for x in selected
+    )
+
+
+    return selected, regex
+
+
+# ============================================================
+# DATE VALIDATION
+# ============================================================
+
+def validate_date(date_text):
+
+    try:
+
+        date = datetime.strptime(
+            date_text,
+            "%Y-%m-%d"
+        )
+
+        if date.date() < datetime.now().date():
+
+            return False
+
+
+        return True
+
+    except ValueError:
+
+        return False
+
+
+# ============================================================
+# GITHUB ACTIONS
+# ============================================================
+
+def dispatch_github_workflow(
+    job_id,
+    chat_id,
+    username,
+    from_station,
+    to_station,
+    journey_date,
+    seat_class
+):
+
+    url = (
+        f"https://api.github.com/repos/"
+        f"{GITHUB_OWNER}/{GITHUB_REPO}/actions/"
+        f"workflows/{GITHUB_WORKFLOW}/dispatches"
+    )
+
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+
+
+    payload = {
+        "ref": GITHUB_REF,
+        "inputs": {
+
+            "job_id": str(job_id),
+
+            "chat_id": str(chat_id),
+
+            "username": username or "Unknown",
+
+            "from_station": from_station,
+
+            "to_station": to_station,
+
+            "journey_date": journey_date,
+
+            "seat_class": seat_class
+        }
+    }
+
+
+    try:
+
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=20
+        )
+
+
+        if response.status_code == 204:
+
+            print(
+                f"GitHub workflow dispatched for job {job_id}"
+            )
+
+            return True
+
+
+        print(
+            "GitHub dispatch failed:",
+            response.status_code,
+            response.text
+        )
+
+        return False
+
+
+    except Exception as e:
+
+        print(
+            f"GitHub dispatch exception: {e}"
+        )
+
+        return False
+
+
+# ============================================================
+# CREATE MONITORING JOB
+# ============================================================
+
+def create_job(
+    chat_id,
+    username,
+    from_station,
+    to_station,
+    journey_date,
+    seat_class
+):
+
+    job_id = str(uuid.uuid4())
+
+
+    try:
+
+        result = supabase.table(
+            "monitoring_jobs"
+        ).insert({
+
+            "id": job_id,
+
+            "chat_id": chat_id,
+
+            "username": username,
+
+            "from_station": from_station,
+
+            "to_station": to_station,
+
+            "journey_date": journey_date,
+
+            "seat_class": seat_class,
+
+            "status": "starting"
+
+        }).execute()
+
+
+        if not result.data:
+
+            return None
+
+
+        return job_id
+
+
+    except Exception as e:
+
+        print(
+            f"Could not create job: {e}"
+        )
+
+        return None
+
+
+# ============================================================
+# CANCEL JOB
+# ============================================================
+
+def cancel_github_run(run_id):
+
+    if not run_id:
+
+        return False
+
+
+    url = (
+        f"https://api.github.com/repos/"
+        f"{GITHUB_OWNER}/{GITHUB_REPO}/actions/"
+        f"runs/{run_id}/cancel"
+    )
+
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+
+
+    try:
+
+        response = requests.post(
+            url,
+            headers=headers,
+            timeout=20
+        )
+
+
+        return response.status_code in (
+            202,
+            204
+        )
+
+
+    except Exception as e:
+
+        print(
+            f"Could not cancel GitHub run: {e}"
+        )
+
+        return False
+
+
+# ============================================================
+# USER STATE HELPERS
+# ============================================================
+
+def set_state(chat_id, step, **data):
+
+    USER_STATES[chat_id] = {
+        "step": step,
+        **data
+    }
+
+
+def clear_state(chat_id):
+
+    USER_STATES.pop(
+        chat_id,
+        None
+    )
+
+
+# ============================================================
+# START NEW SEARCH
+# ============================================================
+
+def start_new_search(chat_id):
+
+    user = get_verified_user(chat_id)
+
+
+    if not user:
+
+        send_message(
+            chat_id,
+            "🔒 You need to verify your SUST student email first.\n\n"
+            "Use /start to verify."
+        )
+
+        return
+
+
+    set_state(
+        chat_id,
+        "from_station"
+    )
+
+
+    send_message(
+        chat_id,
+        "🚆 New Railway Search\n\n"
+        "Enter your FROM station.\n\n"
+        "Example:\n"
+        "Dhaka"
+    )
+
+
+# ============================================================
+# PROCESS SEARCH
+# ============================================================
+
+def process_search_message(
+    chat_id,
+    username,
+    text
+):
+
+    state = USER_STATES.get(chat_id)
+
+
+    if not state:
+
+        return False
+
+
+    step = state["step"]
+
+
+    # --------------------------------------------------------
+    # FROM
+    # --------------------------------------------------------
+
+    if step == "from_station":
+
+        set_state(
+            chat_id,
+            "to_station",
+            from_station=text
+        )
+
+
+        send_message(
+            chat_id,
+            "📍 Enter your TO station.\n\n"
+            "Example:\n"
+            "Chattogram"
+        )
+
+        return True
+
+
+    # --------------------------------------------------------
+    # TO
+    # --------------------------------------------------------
+
+    if step == "to_station":
+
+        set_state(
+            chat_id,
+            "journey_date",
+            from_station=state["from_station"],
+            to_station=text
+        )
+
+
+        send_message(
+            chat_id,
+            "📅 Enter journey date.\n\n"
+            "Format:\n"
+            "YYYY-MM-DD\n\n"
+            "Example:\n"
+            "2026-09-20"
+        )
+
+        return True
+
+
+    # --------------------------------------------------------
+    # DATE
+    # --------------------------------------------------------
+
+    if step == "journey_date":
+
+        if not validate_date(text):
+
+            send_message(
+                chat_id,
+                "❌ Invalid date.\n\n"
+                "Please use YYYY-MM-DD and make sure "
+                "the date isn't in the past."
+            )
+
+            return True
+
+
+        set_state(
+            chat_id,
+            "seat_class",
+            from_station=state["from_station"],
+            to_station=state["to_station"],
+            journey_date=text
+        )
+
+
+        send_message(
+            chat_id,
+            "💺 Enter class(es).\n\n"
+            "You can select multiple classes using +.\n\n"
+            "Examples:\n"
+            "• Snigdha\n"
+            "• S_Chair\n"
+            "• Snigdha + S_Chair\n"
+            "• Snigdha + AC_B + S_Chair\n\n"
+            "Available:\n"
+            "SNIGDHA\n"
+            "S_CHAIR\n"
+            "AC_B\n"
+            "AC_S\n"
+            "F_BERTH\n"
+            "F_SEAT\n"
+            "F_CHAIR"
+        )
+
+        return True
+
+
+    # --------------------------------------------------------
+    # CLASS
+    # --------------------------------------------------------
+
+    if step == "seat_class":
+
+        parsed = parse_classes(text)
+
+
+        if not parsed:
+
+            send_message(
+                chat_id,
+                "❌ I couldn't understand the class.\n\n"
+                "Examples:\n"
+                "Snigdha\n"
+                "S_Chair\n"
+                "Snigdha + S_Chair"
+            )
+
+            return True
+
+
+        selected_classes, class_regex = parsed
+
+
+        from_station = state["from_station"]
+        to_station = state["to_station"]
+        journey_date = state["journey_date"]
+
+
+        class_display = " + ".join(
+            selected_classes
+        )
+
+
+        send_message(
+            chat_id,
+            "🔎 Please confirm your search:\n\n"
+            f"From: {from_station}\n"
+            f"To: {to_station}\n"
+            f"Date: {journey_date}\n"
+            f"Class: {class_display}\n\n"
+            f"Regex: `{class_regex}`\n\n"
+            "Type YES to start the monitor\n"
+            "or NO to cancel.",
+            reply_markup={
+                "remove_keyboard": True
+            }
+        )
+
+
+        set_state(
+            chat_id,
+            "confirmation",
+            from_station=from_station,
+            to_station=to_station,
+            journey_date=journey_date,
+            seat_class=class_regex,
+            class_display=class_display
+        )
+
+
+        return True
+
+
+    # --------------------------------------------------------
+    # CONFIRMATION
+    # --------------------------------------------------------
+
+    if step == "confirmation":
+
+        if text.upper() in (
+            "YES",
+            "Y",
+            "CONFIRM"
+        ):
+
+            state = USER_STATES[chat_id]
+
+
+            job_id = create_job(
+                chat_id=chat_id,
+                username=username,
+                from_station=state["from_station"],
+                to_station=state["to_station"],
+                journey_date=state["journey_date"],
+                seat_class=state["seat_class"]
+            )
+
+
+            if not job_id:
+
+                send_message(
+                    chat_id,
+                    "❌ Could not create monitoring job."
+                )
+
+                clear_state(chat_id)
+
+                return True
+
+
+            dispatched = dispatch_github_workflow(
+                job_id=job_id,
+                chat_id=chat_id,
+                username=username,
+                from_station=state["from_station"],
+                to_station=state["to_station"],
+                journey_date=state["journey_date"],
+                seat_class=state["seat_class"]
+            )
+
+
+            if not dispatched:
+
+                supabase.table(
+                    "monitoring_jobs"
+                ).update({
+                    "status": "failed"
+                }).eq(
+                    "id",
+                    job_id
+                ).execute()
+
+
+                send_message(
+                    chat_id,
+                    "❌ Failed to start GitHub Actions monitor."
+                )
+
+                clear_state(chat_id)
+
+                return True
+
+
+            supabase.table(
+                "monitoring_jobs"
+            ).update({
+                "status": "queued"
+            }).eq(
+                "id",
+                job_id
+            ).execute()
+
+
+            send_message(
+                chat_id,
+                "✅ Monitor started!\n\n"
+                f"Job ID:\n{job_id}\n\n"
+                f"🚆 {state['from_station']} → "
+                f"{state['to_station']}\n"
+                f"📅 {state['journey_date']}\n"
+                f"💺 {state['class_display']}\n\n"
+                "I'll notify you here when tickets are found.",
+                reply_markup=main_menu()
+            )
+
+
+            clear_state(chat_id)
+
+            return True
+
+
+        if text.upper() in (
+            "NO",
+            "N",
+            "CANCEL"
+        ):
+
+            clear_state(chat_id)
+
+
+            send_message(
+                chat_id,
+                "❌ Search cancelled.",
+                reply_markup=main_menu()
+            )
+
+            return True
+
+
+        send_message(
+            chat_id,
+            "Please type YES to start or NO to cancel."
+        )
+
+        return True
+
+
+    return False
+
+
+# ============================================================
+# COMMANDS
+# ============================================================
+
+def handle_start(chat_id, username):
+
+    user = get_verified_user(chat_id)
+
+
+    if user:
+
+        send_message(
+            chat_id,
+            "👋 Welcome back!\n\n"
+            "Your SUST student account is already verified.\n\n"
+            "You can start monitoring Railway tickets.",
+            reply_markup=main_menu()
+        )
+
+        return
+
+
+    set_state(
+        chat_id,
+        "email"
+    )
+
+
+    send_message(
+        chat_id,
+        "🎓 Railway Ticket Monitor\n\n"
+        "This bot is currently restricted to "
+        "SUST students.\n\n"
+        "Please enter your SUST student email.\n\n"
+        "Example:\n"
+        "2023331XXX@student.sust.edu"
+    )
+
+
+def handle_email(chat_id, text):
+
+    email = text.strip().lower()
+
+
+    if not SUST_EMAIL_REGEX.fullmatch(email):
+
+        send_message(
+            chat_id,
+            "❌ That doesn't look like a valid SUST "
+            "student email.\n\n"
+            "Please enter an email like:\n"
+            "2023331XXX@student.sust.edu"
+        )
+
+        return
+
+
+    send_message(
+        chat_id,
+        "📧 Sending verification code..."
+    )
+
+
+    success = create_verification(
+        chat_id,
+        email
+    )
+
+
+    if not success:
+
+        send_message(
+            chat_id,
+            "❌ I couldn't send the verification email.\n\n"
+            "Please try again later."
+        )
+
+        return
+
+
+    set_state(
+        chat_id,
+        "verification",
+        email=email
+    )
+
+
+    send_message(
+        chat_id,
+        "📨 Verification code sent!\n\n"
+        f"I sent a 6-digit code to:\n{email}\n\n"
+        "Enter the code here.\n\n"
+        "The code expires in 10 minutes."
+    )
+
+
+def handle_verification(chat_id, text):
+
+    if not text.isdigit() or len(text) != 6:
+
+        send_message(
+            chat_id,
+            "❌ Please enter the 6-digit verification code."
+        )
+
+        return
+
+
+    success, result = verify_code(
+        chat_id,
+        text
+    )
+
+
+    if success:
+
+        clear_state(chat_id)
+
+
+        send_message(
+            chat_id,
+            "✅ Email verified successfully!\n\n"
+            f"Student email:\n{result}\n\n"
+            "You now have access to the Railway "
+            "Ticket Monitor.",
+            reply_markup=main_menu()
+        )
+
+        return
+
+
+    send_message(
+        chat_id,
+        f"❌ {result}"
+    )
+
+
+# ============================================================
+# MY SEARCHES
+# ============================================================
+
+def show_my_searches(chat_id):
+
+    try:
+
+        result = supabase.table(
+            "monitoring_jobs"
+        ).select("*").eq(
+            "chat_id",
+            chat_id
+        ).order(
+            "created_at",
+            desc=True
+        ).limit(10).execute()
+
+
+        if not result.data:
+
+            send_message(
+                chat_id,
+                "📋 You don't have any monitoring jobs."
+            )
+
+            return
+
+
+        messages = [
+            "📋 Your recent searches:\n"
+        ]
+
+
+        for job in result.data:
+
+            messages.append(
+                f"🚆 {job['from_station']} → "
+                f"{job['to_station']}\n"
+                f"📅 {job['journey_date']}\n"
+                f"💺 {job['seat_class']}\n"
+                f"📊 {job['status']}\n"
+                f"🆔 {job['id']}\n"
+            )
+
+
+        send_message(
+            chat_id,
+            "\n".join(messages)
+        )
+
+
+    except Exception as e:
+
+        print(
+            f"My searches error: {e}"
+        )
+
+        send_message(
+            chat_id,
+            "❌ Could not retrieve your searches."
+        )
+
+
+# ============================================================
+# CANCEL SEARCHES
+# ============================================================
+
+def cancel_my_searches(chat_id):
+
+    try:
+
+        result = supabase.table(
+            "monitoring_jobs"
+        ).select("*").eq(
+            "chat_id",
+            chat_id
+        ).in_(
+            "status",
+            [
+                "starting",
+                "queued",
+                "running"
+            ]
+        ).execute()
+
+
+        if not result.data:
+
+            send_message(
+                chat_id,
+                "There are no active searches."
+            )
+
+            return
+
+
+        cancelled = 0
+
+
+        for job in result.data:
+
+            run_id = job.get(
+                "github_run_id"
+            )
+
+
+            if run_id:
+
+                cancel_github_run(
+                    run_id
+                )
+
+
+            supabase.table(
+                "monitoring_jobs"
+            ).update({
+                "status": "cancelled",
+                "finished_at": datetime.utcnow().isoformat()
+            }).eq(
+                "id",
+                job["id"]
+            ).execute()
+
+
+            cancelled += 1
+
+
+        send_message(
+            chat_id,
+            f"❌ Cancelled {cancelled} active search(es)."
+        )
+
+
+    except Exception as e:
+
+        print(
+            f"Cancel error: {e}"
+        )
+
+        send_message(
+            chat_id,
+            "❌ Could not cancel searches."
+        )
+
+
+# ============================================================
+# STATUS
+# ============================================================
+
+def show_status(chat_id):
+
+    user = get_verified_user(chat_id)
+
+
+    if not user:
+
+        send_message(
+            chat_id,
+            "🔒 Not verified.\n\n"
+            "Use /start to verify your SUST email."
+        )
+
+        return
+
+
+    try:
+
+        result = supabase.table(
+            "monitoring_jobs"
+        ).select("*").eq(
+            "chat_id",
+            chat_id
+        ).in_(
+            "status",
+            [
+                "starting",
+                "queued",
+                "running"
+            ]
+        ).execute()
+
+
+        active = len(
+            result.data
+        )
+
+
+        send_message(
+            chat_id,
+            "📊 Your status\n\n"
+            "🎓 SUST email: verified\n"
+            f"🚆 Active searches: {active}"
+        )
+
+
+    except Exception:
+
+        send_message(
+            chat_id,
+            "🎓 Your SUST email is verified."
+        )
+
+
+# ============================================================
+# HELP
+# ============================================================
+
+def show_help(chat_id):
+
+    send_message(
+        chat_id,
+        "ℹ️ Railway Ticket Monitor\n\n"
+        "/start — Verify/login\n"
+        "/new — Create a new search\n"
+        "/mysearches — Show your searches\n"
+        "/cancel — Cancel active searches\n"
+        "/status — Show your status\n"
+        "/help — Show this message\n\n"
+        "Class examples:\n"
+        "Snigdha\n"
+        "S_Chair\n"
+        "Snigdha + S_Chair\n"
+        "Snigdha + AC_B + S_Chair"
+    )
+
+
+# ============================================================
+# ADMIN
+# ============================================================
+
+def handle_admin_command(
+    chat_id,
+    text
+):
+
+    if chat_id != ADMIN_ID:
+
+        return False
+
+
+    # --------------------------------------------------------
+    # /subscribers
+    # --------------------------------------------------------
+
+    if text == "/subscribers":
+
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-            resp = requests.get(url, params={"offset": offset, "timeout": 20}, timeout=25).json()
 
-            if not resp.get("ok"): continue
+            result = supabase.table(
+                "subscribers"
+            ).select(
+                "username,chat_id,email,verified"
+            ).execute()
 
-            for update in resp.get("result", []):
-                offset = update["update_id"] + 1
-                msg = update.get("message")
-                if not msg or "text" not in msg: continue
 
-                chat_id = str(msg["chat"]["id"])
-                username = msg.get("from", {}).get("username", "Unknown")
-                text = msg["text"].strip()
+            if not result.data:
 
-                # --- USER COMMAND: /start ---
-                if text == "/start":
-                    supabase.table("subscribers").upsert({"chat_id": chat_id, "username": username}).execute()
-                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                  json={"chat_id": chat_id, "text": "✅ Subscribed to Railway Monitor via Cloud!"})
-                    print(f"New User Joined: {username}")
+                send_message(
+                    chat_id,
+                    "👥 Subscribers: 0"
+                )
 
-                # --- USER COMMAND: /stop ---
-                elif text == "/stop":
-                    supabase.table("subscribers").delete().eq("chat_id", chat_id).execute()
-                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                  json={"chat_id": chat_id, "text": "❌ Unsubscribed. You will no longer receive alerts."})
-                    print(f"User Left: {username}")
+                return True
 
-                # --- USER COMMAND: /status ---
-                elif text == "/status":
-                    res = supabase.table("subscribers").select("*").eq("chat_id", chat_id).execute()
-                    if res.data:
-                        status_msg = "🔔 STATUS: Subscribed\nYou are currently on the notification list."
-                    else:
-                        status_msg = "🔕 STATUS: Not Subscribed\nUse /start to join the list."
-                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                  json={"chat_id": chat_id, "text": status_msg})
 
-                # --- ADMIN COMMAND: /subscribers (List Users) ---
-                elif text == "/subscribers" and chat_id == ADMIN_ID:
-                    res = supabase.table("subscribers").select("username, chat_id").execute()
-                    if res.data:
-                        user_list = "\n".join([f"- @{u['username']} (`{u['chat_id']}`)" for u in res.data])
-                        response = f"👥 **Subscribers ({len(res.data)}):**\n\n{user_list}"
-                    else:
-                        response = "👥 Subscribers: 0"
-                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                  json={"chat_id": chat_id, "text": response, "parse_mode": "Markdown"})
+            lines = [
+                f"👥 Subscribers: {len(result.data)}\n"
+            ]
 
-                # --- ADMIN COMMAND: /add <id> <username> ---
-                elif text.startswith("/add ") and chat_id == ADMIN_ID:
-                    try:
-                        parts = text.split(" ")
-                        new_id = parts[1]
-                        new_user = parts[2] if len(parts) > 2 else "ManualUser"
-                        supabase.table("subscribers").upsert({"chat_id": new_id, "username": new_user}).execute()
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                      json={"chat_id": chat_id, "text": f"✅ Manually added {new_user} ({new_id})"})
-                    except Exception as e:
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                      json={"chat_id": chat_id, "text": f"❌ Error: Use `/add ID USERNAME`"})
 
-                # --- ADMIN COMMAND: /remove <id> ---
-                elif text.startswith("/remove ") and chat_id == ADMIN_ID:
-                    try:
-                        rem_id = text.split(" ")[1]
-                        supabase.table("subscribers").delete().eq("chat_id", rem_id).execute()
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                      json={"chat_id": chat_id, "text": f"✅ Manually removed ID: {rem_id}"})
-                    except Exception as e:
-                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                                      json={"chat_id": chat_id, "text": "❌ Error: Use `/remove ID`"})
+            for user in result.data:
+
+                status = (
+                    "✅"
+                    if user.get("verified")
+                    else "❌"
+                )
+
+
+                lines.append(
+                    f"{status} "
+                    f"{user.get('email', 'No email')} "
+                    f"({user['chat_id']})"
+                )
+
+
+            send_message(
+                chat_id,
+                "\n".join(lines)
+            )
+
 
         except Exception as e:
-            print(f"Error: {e}")
+
+            send_message(
+                chat_id,
+                f"❌ Error: {e}"
+            )
+
+
+        return True
+
+
+    # --------------------------------------------------------
+    # /remove ID
+    # --------------------------------------------------------
+
+    if text.startswith("/remove "):
+
+        parts = text.split()
+
+        if len(parts) < 2:
+
+            send_message(
+                chat_id,
+                "Usage:\n/remove CHAT_ID"
+            )
+
+            return True
+
+
+        rem_id = parts[1]
+
+
+        try:
+
+            supabase.table(
+                "subscribers"
+            ).delete().eq(
+                "chat_id",
+                rem_id
+            ).execute()
+
+
+            send_message(
+                chat_id,
+                f"✅ Removed {rem_id}"
+            )
+
+
+        except Exception as e:
+
+            send_message(
+                chat_id,
+                f"❌ Error: {e}"
+            )
+
+
+        return True
+
+
+    return False
+
+
+# ============================================================
+# TELEGRAM LISTENER
+# ============================================================
+
+def telegram_listener():
+
+    print(
+        "🚀 Railway Monitor Telegram backend started..."
+    )
+
+
+    offset = 0
+
+
+    while True:
+
+        try:
+
+            url = (
+                f"https://api.telegram.org/"
+                f"bot{TELEGRAM_TOKEN}/getUpdates"
+            )
+
+
+            response = requests.get(
+                url,
+                params={
+                    "offset": offset,
+                    "timeout": 20
+                },
+                timeout=25
+            )
+
+
+            data = response.json()
+
+
+            if not data.get("ok"):
+
+                time.sleep(5)
+
+                continue
+
+
+            for update in data.get(
+                "result",
+                []
+            ):
+
+                offset = (
+                    update["update_id"]
+                    + 1
+                )
+
+
+                message = update.get(
+                    "message"
+                )
+
+
+                if not message:
+
+                    continue
+
+
+                if "text" not in message:
+
+                    continue
+
+
+                chat_id = str(
+                    message["chat"]["id"]
+                )
+
+
+                username = message.get(
+                    "from",
+                    {}
+                ).get(
+                    "username",
+                    "Unknown"
+                )
+
+
+                text = message[
+                    "text"
+                ].strip()
+
+
+                state = USER_STATES.get(
+                    chat_id
+                )
+
+
+                # ====================================================
+                # VERIFICATION FLOW
+                # ====================================================
+
+                if state:
+
+                    if state["step"] == "email":
+
+                        handle_email(
+                            chat_id,
+                            text
+                        )
+
+                        continue
+
+
+                    if state["step"] == "verification":
+
+                        if text.lower() == "/resend":
+
+                            email = state["email"]
+
+
+                            if create_verification(
+                                chat_id,
+                                email
+                            ):
+
+                                send_message(
+                                    chat_id,
+                                    "📨 A new verification code "
+                                    "has been sent."
+                                )
+
+                            else:
+
+                                send_message(
+                                    chat_id,
+                                    "❌ Could not send a new code."
+                                )
+
+                            continue
+
+
+                        handle_verification(
+                            chat_id, 
+                            text,
+                            username
+                        )
+
+                        continue
+
+
+                    # Search flow
+                    if process_search_message(
+                        chat_id,
+                        username,
+                        text
+                    ):
+
+                        continue
+
+
+                # ====================================================
+                # ADMIN
+                # ====================================================
+
+                if handle_admin_command(
+                    chat_id,
+                    text
+                ):
+
+                    continue
+
+
+                # ====================================================
+                # COMMANDS
+                # ====================================================
+
+                if text == "/start":
+
+                    handle_start(
+                        chat_id,
+                        username
+                    )
+
+                    continue
+
+
+                if text == "/new":
+
+                    start_new_search(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "/mysearches":
+
+                    if get_verified_user(
+                        chat_id
+                    ):
+
+                        show_my_searches(
+                            chat_id
+                        )
+
+                    else:
+
+                        send_message(
+                            chat_id,
+                            "🔒 Please verify your SUST "
+                            "student email first."
+                        )
+
+                    continue
+
+
+                if text == "/cancel":
+
+                    cancel_my_searches(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "/status":
+
+                    show_status(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "/help":
+
+                    show_help(
+                        chat_id
+                    )
+
+                    continue
+
+
+                # ====================================================
+                # BUTTONS
+                # ====================================================
+
+                if text == "🚆 New Search":
+
+                    start_new_search(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "📋 My Searches":
+
+                    show_my_searches(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "❌ Cancel Search":
+
+                    cancel_my_searches(
+                        chat_id
+                    )
+
+                    continue
+
+
+                if text == "ℹ️ Help":
+
+                    show_help(
+                        chat_id
+                    )
+
+                    continue
+
+
+                # ====================================================
+                # DEFAULT
+                # ====================================================
+
+                send_message(
+                    chat_id,
+                    "I don't understand that command.\n\n"
+                    "Use /help to see what I can do."
+                )
+
+
+        except Exception as e:
+
+            print(
+                f"Telegram listener error: {e}"
+            )
+
             time.sleep(10)
 
+
+# ============================================================
+# MAIN
+# ============================================================
+
 if __name__ == "__main__":
+
+    threading.Thread(
+        target=run_health_server,
+        daemon=True
+    ).start()
+
+
     telegram_listener()

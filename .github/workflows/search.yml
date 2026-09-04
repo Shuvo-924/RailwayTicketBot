@@ -1,32 +1,61 @@
-name: Search Train Tickets
-
+name: Railway Search Engine
 on:
-  repository_dispatch:
-    types: [search_ticket]
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Internal Job ID'
+        required: true
+      chat_id:
+        description: 'Telegram Chat ID'
+        required: true
+      username:
+        description: 'Telegram Username'
+        required: true
+      from_station:
+        description: 'From'
+        required: true
+      to_station:
+        description: 'To'
+        required: true
+      journey_date:
+        description: 'Date'
+        required: true
+      seat_class:
+        description: 'Class Regex'
+        required: true
 
 jobs:
-  search:
+  run-search:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: Install system dependencies
+
+      - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable xvfb
-      - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+          sudo apt update
+          sudo apt install -y google-chrome-stable xvfb
+          pip install playwright seleniumbase supabase requests python-dotenv nest_asyncio
           playwright install chromium
-      - name: Run search
+          playwright install-deps
+
+      - name: Run Monitor
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CI: "true"
+          JOB_ID: ${{ github.event.inputs.job_id }}
+          CHAT_ID: ${{ github.event.inputs.chat_id }}
+          USERNAME: ${{ github.event.inputs.username }}
+          FROM_STATION: ${{ github.event.inputs.from_station }}
+          TO_STATION: ${{ github.event.inputs.to_station }}
+          JOURNEY_DATE: ${{ github.event.inputs.journey_date }}
+          SEAT_CLASS: ${{ github.event.inputs.seat_class }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAILWAY_PHONE: ${{ secrets.RAILWAY_PHONE }}
           RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
-        run: python bot_backup.py
+        run: xvfb-run -a python bot_backup.py
