@@ -177,9 +177,14 @@ Railway Ticket Monitor
 """)
 
     try:
-        # Use smtplib.SMTP (not SMTP_SSL) for port 587
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()  # Secure the connection
+        if SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+            server.starttls() # Secure the connection
+        
+        with server:
+            # server.set_debuglevel(1) # Uncomment this to see full logs in Render
             server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
             server.send_message(message)
         
@@ -1215,14 +1220,6 @@ def handle_admin_command(chat_id, text):
 def telegram_listener():
 
     print("🚀 Railway Monitor Telegram backend started...")
-    supabase.table("subscribers").upsert(
-                {
-                    "chat_id": ADMIN_ID,
-                    "username": "Moshiur_Zolil_Shuvo",  # Capture the actual username
-                    "email": "2023331061@student.sust.edu",
-                    "verified": False,
-                }
-            ).execute()
 
     offset = 0
 
@@ -1387,6 +1384,6 @@ def telegram_listener():
 # ============================================================
 
 if __name__ == "__main__":
-    # threading.Thread(target=run_health_server, daemon=True).start()
+    threading.Thread(target=run_health_server, daemon=True).start()
 
     telegram_listener()
