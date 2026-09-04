@@ -577,6 +577,12 @@ def monitor_loop(page):
                         notify_user(message)
 
                     previous_state[key] = count
+                    if count > 0 and class_name in TARGET_CLASSES:
+                        print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
+                        message = build_ticket_message(train, class_name, count)
+                        notify_user(message)
+                        print("Desired ticket found. Stopping monitoring.")
+                        break
 
             current_time = time.strftime("%H:%M:%S")
 
