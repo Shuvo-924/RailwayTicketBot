@@ -1382,6 +1382,10 @@ def telegram_listener():
 # ============================================================
 
 if __name__ == "__main__":
-    threading.Thread(target=run_health_server, daemon=True).start()
+    t = threading.Thread(target=run_health_server)
+    t.daemon = False 
+    t.start()
+    print("✅ Health Server started in background...")
+    time.sleep(5) 
 
     telegram_listener()
