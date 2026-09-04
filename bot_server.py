@@ -7,7 +7,7 @@ import smtplib
 import threading
 import requests
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -157,20 +157,15 @@ def main_menu():
 
 
 def send_verification_email(email, code):
-
     if not SMTP_EMAIL or not SMTP_APP_PASSWORD:
         print("ERROR: SMTP_EMAIL or SMTP_APP_PASSWORD is not configured.")
-
         return False
 
     message = EmailMessage()
-
     message["Subject"] = "Railway Monitor - Verification Code"
     message["From"] = SMTP_EMAIL
     message["To"] = email
-
-    message.set_content(
-        f"""Hello,
+    message.set_content(f"""Hello,
 
 Your Railway Ticket Monitor verification code is:
 
@@ -178,25 +173,20 @@ Your Railway Ticket Monitor verification code is:
 
 This code will expire in {VERIFICATION_EXPIRY_MINUTES} minutes.
 
-If you did not request this code, you can safely ignore this email.
-
 Railway Ticket Monitor
-"""
-    )
+""")
 
     try:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        # Use smtplib.SMTP (not SMTP_SSL) for port 587
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()  # Secure the connection
             server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-
             server.send_message(message)
-
+        
         print(f"Verification email sent to {email}")
-
         return True
-
     except Exception as e:
         print(f"Failed to send verification email: {e}")
-
         return False
 
 
@@ -215,7 +205,7 @@ def create_verification(chat_id, email):
     code = generate_verification_code()
 
     expires_at = (
-        datetime.utcnow() + timedelta(minutes=VERIFICATION_EXPIRY_MINUTES)
+        datetime.now(timezone.utc) + timedelta(minutes=VERIFICATION_EXPIRY_MINUTES)
     ).isoformat()
 
     # Remove previous codes for this chat/email
@@ -608,22 +598,29 @@ def clear_state(chat_id):
 
 
 def start_new_search(chat_id):
-
     user = get_verified_user(chat_id)
-
     if not user:
-        send_message(
-            chat_id,
-            "🔒 You need to verify your SUST student email first.\n\n"
-            "Use /start to verify.",
-        )
-
+        send_message(chat_id, "🔒 You need to verify your SUST student email first.\n\nUse /start to verify.")
         return
 
-    set_state(chat_id, "from_station")
+    # Set state to search_mode first
+    set_state(chat_id, "search_mode")
+
+    # Create a keyboard for the mode selection
+    markup = {
+        "keyboard": [
+            [{"text": "🤝 Shared Session"}, {"text": "🔐 Private Session"}]
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": True
+    }
 
     send_message(
-        chat_id, "🚆 New Railway Search\n\nEnter your FROM station.\n\nExample:\nDhaka"
+        chat_id, 
+        "🛡️ Choose Search Mode:\n\n"
+        "🤝 Shared: Uses server account. (Subject to queue)\n"
+        "🔐 Private: Uses your own Railway account. (Instant start)",
+        reply_markup=markup
     )
 
 
@@ -653,6 +650,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 "🔐 Private Session Selected.\n\nPlease enter your Railway Mobile Number:",
+                reply_markup={"remove_keyboard": True} # Clear the mode buttons
             )
         else:
             queue_pos = get_queue_position()
@@ -660,6 +658,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 f"🤝 Shared Session Selected.\nThere are currently {queue_pos} searches in queue.\n\nEnter FROM station:",
+                reply_markup={"remove_keyboard": True} # Clear the mode buttons
             )
         return True
 
@@ -835,6 +834,11 @@ def process_search_message(chat_id, username, text):
             phone = state.get("phone", os.getenv("RAILWAY_PHONE"))
             password = state.get("password", os.getenv("RAILWAY_PASSWORD"))
 
+            send_message(
+                chat_id,
+                f"Dispatching job (private: {is_priv})\nPlease wait for the monitor to start...",
+            )
+
             dispatched = dispatch_github_workflow(
                 job_id,
                 chat_id,
@@ -962,14 +966,14 @@ def handle_email(chat_id, text):
     )
 
 
-def handle_verification(chat_id, text):
+def handle_verification(chat_id, text, username):
 
     if not text.isdigit() or len(text) != 6:
         send_message(chat_id, "❌ Please enter the 6-digit verification code.")
 
         return
 
-    success, result = verify_code(chat_id, text)
+    success, result = verify_code(chat_id, text, username)
 
     if success:
         clear_state(chat_id)
@@ -1272,7 +1276,7 @@ def telegram_listener():
 
                             continue
 
-                        handle_verification(chat_id, text)
+                        handle_verification(chat_id, text, username)
 
                         continue
 
@@ -1360,6 +1364,9 @@ def telegram_listener():
                     "I don't understand that command.\n\n"
                     "Use /help to see what I can do.",
                 )
+        except KeyboardInterrupt:
+            print("Telegram listener stopped by user.")
+            break        
 
         except Exception as e:
             print(f"Telegram listener error: {e}")
@@ -1372,6 +1379,6 @@ def telegram_listener():
 # ============================================================
 
 if __name__ == "__main__":
-    threading.Thread(target=run_health_server, daemon=True).start()
+    # threading.Thread(target=run_health_server, daemon=True).start()
 
     telegram_listener()

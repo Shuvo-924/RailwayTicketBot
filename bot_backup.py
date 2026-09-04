@@ -97,12 +97,8 @@ if len(journey_date_parts) != 3:
     )
     sys.exit(1)
 
-journey_day = int(journey_date_parts[0])
-journey_month = int(journey_date_parts[1])
-journey_year = int(journey_date_parts[2])
-if journey_year < 100:
-    journey_year += 2000
-journey_datetime = datetime(journey_year, journey_month, journey_day)
+
+journey_datetime = datetime.strptime(JOURNEY_DATE_INPUT, "%Y-%m-%d")
 
 
 def parse_target_classes(value):
