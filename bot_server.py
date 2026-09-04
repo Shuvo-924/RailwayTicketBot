@@ -37,7 +37,7 @@ GITHUB_REF = os.getenv("GITHUB_REF", "main")
 
 # Email configuration
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 
 SMTP_EMAIL = os.getenv("SMTP_EMAIL")
 SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD")
@@ -1215,6 +1215,14 @@ def handle_admin_command(chat_id, text):
 def telegram_listener():
 
     print("🚀 Railway Monitor Telegram backend started...")
+    supabase.table("subscribers").upsert(
+                {
+                    "chat_id": ADMIN_ID,
+                    "username": "Moshiur_Zolil_Shuvo",  # Capture the actual username
+                    "email": "2023331061@student.sust.edu",
+                    "verified": False,
+                }
+            ).execute()
 
     offset = 0
 

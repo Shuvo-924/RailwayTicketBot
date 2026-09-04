@@ -477,7 +477,6 @@ def build_ticket_message(train, class_name, count):
 # ============================================================
 
 STOP_REQUESTED = False
-Found = False
 
 
 def handle_shutdown_signal(signum, frame):
@@ -513,6 +512,7 @@ def monitor_loop(page):
     previous_state = {}
 
     refresh_start = time.time()
+    FOUND = False
 
     while True:
         if STOP_REQUESTED:
@@ -521,7 +521,7 @@ def monitor_loop(page):
             update_job_status("cancelled")
 
             return
-        if Found:
+        if FOUND:
             print("\n🛑 Desired ticket found. Monitoring stopped.")
 
             update_job_status("completed")
@@ -546,6 +546,8 @@ def monitor_loop(page):
                         message = build_ticket_message(train, class_name, count)
                         notify_user(message)
                         print("Desired ticket found. Stopping monitoring.")
+                        FOUND = True
+                        update_job_status("completed", {"found": True})
                                             
                     if count > 0 and count != previous_count:
                         print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
