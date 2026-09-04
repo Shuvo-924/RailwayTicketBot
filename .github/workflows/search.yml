@@ -15,7 +15,6 @@ on:
 jobs:
   run-search:
     runs-on: ubuntu-latest
-    # This container has Python, Playwright, Chromium, and all Linux deps pre-installed
     container:
       image: mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
@@ -24,9 +23,7 @@ jobs:
 
       - name: Install Python API Libraries
         run: |
-          # We only install the small libraries. 
-          # Playwright and Chromium are already there!
-          pip install seleniumbase supabase requests python-dotenv nest_asyncio
+          pip install playwright seleniumbase supabase requests python-dotenv nest_asyncio
 
       - name: Run Monitor
         env:
@@ -43,5 +40,4 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAILWAY_PHONE: ${{ github.event.inputs.user_phone || secrets.RAILWAY_PHONE }}
           RAILWAY_PASSWORD: ${{ github.event.inputs.user_pass || secrets.RAILWAY_PASSWORD }}
-        # xvfb is pre-installed in this image
         run: xvfb-run -a python bot_backup.py
