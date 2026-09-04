@@ -178,55 +178,23 @@ TARGET_CLASSES = parse_target_classes(SEAT_CLASS_INPUT)
 
 
 def parse_journey_date(value):
-    """
-    Supports:
-
-        YYYY-MM-DD
-        DD/MM/YYYY
-        DD-MM-YYYY
-        DD.MM.YYYY
-    """
-
     value = value.strip()
-
-    formats = [
-        "%Y-%m-%d",
-        "%d/%m/%Y",
-        "%d-%m-%Y",
-        "%d.%m.%Y",
-        "%Y/%m/%d",
-    ]
-
-    for fmt in formats:
+    # Try common formats
+    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"]:
         try:
             return datetime.strptime(value, fmt)
         except ValueError:
-            pass
-
-    # Fallback numeric parser
+            continue
+    
+    # Fallback: manually detect YYYY-MM-DD vs DD-MM-YYYY
     numbers = re.findall(r"\d+", value)
-
     if len(numbers) != 3:
-        raise ValueError(
-            f"Invalid journey date: '{value}'. Expected YYYY-MM-DD or DD/MM/YYYY."
-        )
-
-    a, b, c = map(int, numbers)
-
-    # Detect YYYY-MM-DD
-    if len(numbers[0]) == 4:
-        year = a
-        month = b
-        day = c
-    else:
-        day = a
-        month = b
-        year = c
-
-    if year < 100:
-        year += 2000
-
-    return datetime(year, month, day)
+        raise ValueError(f"Invalid date: {value}")
+    
+    if len(numbers[0]) == 4: # YYYY-MM-DD
+        return datetime(int(numbers[0]), int(numbers[1]), int(numbers[2]))
+    else: # DD-MM-YYYY
+        return datetime(int(numbers[2]), int(numbers[1]), int(numbers[0]))
 
 
 journey_datetime = None
@@ -422,44 +390,45 @@ def select_station(page, field_id, station):
 
 def select_date(page, date_string):
     print(f"Selecting date: {date_string}")
-    nums = re.findall(r"\d+", date_string)
-    day, month, year = int(nums[0]), int(nums[1]), int(nums[2])
-    if year < 100:
-        year += 2000
+    
+    # Use robust parsing to get a datetime object
+    try:
+        dt = parse_journey_date(date_string)
+    except Exception as e:
+        print(f"Error parsing date in select_date: {e}")
+        return False
+
+    day = dt.day
+    month = dt.month
+    year = dt.year
+
     page.locator("#doj").click()
     page.wait_for_timeout(500)
     datepicker = page.locator("#ui-datepicker-div")
+    
     month_map = {
-        "January": 1,
-        "February": 2,
-        "March": 3,
-        "April": 4,
-        "May": 5,
-        "June": 6,
-        "July": 7,
-        "August": 8,
-        "September": 9,
-        "October": 10,
-        "November": 11,
-        "December": 12,
+        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
     }
 
+    # Navigate to the correct Month/Year
     for _ in range(24):
         m_name = datepicker.locator(".ui-datepicker-month").inner_text().strip()
         y_val = int(datepicker.locator(".ui-datepicker-year").inner_text().strip())
+        
         if y_val == year and month_map[m_name] == month:
             break
-        btn = (
-            "a.ui-datepicker-next"
-            if (year * 12 + month) > (y_val * 12 + month_map[m_name])
-            else "a.ui-datepicker-prev"
-        )
+            
+        # Click Next if target is in the future, Prev if in the past
+        btn = "a.ui-datepicker-next" if (year * 12 + month) > (y_val * 12 + month_map[m_name]) else "a.ui-datepicker-prev"
         datepicker.locator(btn).click()
         page.wait_for_timeout(300)
 
+    # Correctly find the day cell using the exact Day and Month index (0-based)
     day_cell = datepicker.locator(
         f'td[data-handler="selectDay"][data-month="{month - 1}"][data-year="{year}"]'
     ).get_by_text(str(day), exact=True)
+    
     day_cell.click()
     return True
 
