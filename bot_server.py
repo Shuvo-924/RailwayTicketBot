@@ -156,42 +156,49 @@ def main_menu():
 # ============================================================
 
 
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+
 def send_verification_email(email, code):
-    if not SMTP_EMAIL or not SMTP_APP_PASSWORD:
-        print("ERROR: SMTP_EMAIL or SMTP_APP_PASSWORD is not configured.")
+    if not BREVO_API_KEY:
+        print("❌ ERROR: BREVO_API_KEY not found.")
         return False
 
-    message = EmailMessage()
-    message["Subject"] = "Railway Monitor - Verification Code"
-    message["From"] = SMTP_EMAIL
-    message["To"] = email
-    message.set_content(f"""Hello,
-
-Your Railway Ticket Monitor verification code is:
-
-{code}
-
-This code will expire in {VERIFICATION_EXPIRY_MINUTES} minutes.
-
-Railway Ticket Monitor
-""")
+    url = "https://api.brevo.com/v3/smtp/email"
+    
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "api-key": BREVO_API_KEY
+    }
+    
+    payload = {
+        "sender": {
+            "name": "Railway Monitor",
+            "email": SMTP_EMAIL # This must be the email you signed up with on Brevo
+        },
+        "to": [{"email": email}],
+        "subject": "Railway Monitor - Verification Code",
+        "htmlContent": f"""
+        <html>
+            <body>
+                <h1>Verification Code</h1>
+                <p>Your Railway Ticket Monitor code is: <strong>{code}</strong></p>
+                <p>This code expires in 10 minutes.</p>
+            </body>
+        </html>
+        """
+    }
 
     try:
-        if SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15)
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        if response.status_code in [200, 201, 202]:
+            print(f"✅ Success: Email sent to {email}")
+            return True
         else:
-            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
-            server.starttls() # Secure the connection
-        
-        with server:
-            # server.set_debuglevel(1) # Uncomment this to see full logs in Render
-            server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
-            server.send_message(message)
-        
-        print(f"Verification email sent to {email}")
-        return True
+            print(f"❌ Brevo Error: {response.text}")
+            return False
     except Exception as e:
-        print(f"Failed to send verification email: {e}")
+        print(f"❌ Request Error: {e}")
         return False
 
 
