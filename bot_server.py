@@ -1374,7 +1374,7 @@ def telegram_listener():
         except Exception as e:
             print(f"Telegram listener error: {e}")
 
-            time.sleep(10)
+            time.sleep(20)
 
 
 # ============================================================
