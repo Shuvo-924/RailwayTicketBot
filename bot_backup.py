@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 from seleniumbase import SB
 from seleniumbase import BaseCase
 from supabase import create_client
-from datetime import datetime
+from datetime import datetime,timedelta
 
 # Required to bridge the gap between SeleniumBase's internals and Playwright
 nest_asyncio.apply()
@@ -547,7 +547,7 @@ def monitor_loop(page):
                         notify_user(message)
                         print("Desired ticket found. Stopping monitoring.")
                         FOUND = True
-                        update_job_status("completed", {"found": True})
+                        update_job_status("completed")
                                             
                     if count > 0 and count != previous_count and FOUND is False:
                         print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
@@ -586,7 +586,7 @@ def monitor_loop(page):
             # JOURNEY DATE CHECK
             # ------------------------------------------------
 
-            if datetime.now() > journey_datetime:
+            if datetime.now() > journey_datetime + timedelta(hours=9):
                 print("\n\n📅 Journey date has passed.")
 
                 print("🏁 Monitoring completed.")
