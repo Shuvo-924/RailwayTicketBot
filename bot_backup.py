@@ -680,7 +680,7 @@ def main():
 
             # Wait for the login button to become enabled
             sb.wait_for_element_visible(
-                ".login-form-submit-btn:not([disabled])", timeout=30
+                ".login-form-submit-btn:not([disabled])", timeout=60
             )
             print("Login button enabled. Clicking...")
             sb.click(".login-form-submit-btn")
