@@ -15,40 +15,18 @@ on:
 jobs:
   run-search:
     runs-on: ubuntu-latest
+    # This container has Python, Playwright, Chromium, and all Linux deps pre-installed
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.45.0-jammy
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          # Caches pip dependencies automatically
-          cache: 'pip' 
-
-      # 1. Cache Playwright Browsers (The heaviest part)
-      - name: Cache Playwright Browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Python Dependencies
+      - name: Install Python API Libraries
         run: |
-          pip install playwright seleniumbase supabase requests python-dotenv nest_asyncio
-
-      # 2. Install Playwright Browsers ONLY if cache miss
-      - name: Install Playwright Chromium & System Deps
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install chromium --with-deps
-
-      # 3. Small system utilities (Xvfb is usually pre-installed, but we ensure it)
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgbm-dev
+          # We only install the small libraries. 
+          # Playwright and Chromium are already there!
+          pip install seleniumbase supabase requests python-dotenv nest_asyncio
 
       - name: Run Monitor
         env:
@@ -61,9 +39,9 @@ jobs:
           JOURNEY_DATE: ${{ github.event.inputs.journey_date }}
           SEAT_CLASS: ${{ github.event.inputs.seat_class }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           RAILWAY_PHONE: ${{ github.event.inputs.user_phone || secrets.RAILWAY_PHONE }}
           RAILWAY_PASSWORD: ${{ github.event.inputs.user_pass || secrets.RAILWAY_PASSWORD }}
+        # xvfb is pre-installed in this image
         run: xvfb-run -a python bot_backup.py
