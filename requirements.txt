@@ -1,5 +1,6 @@
-requests
-python-dotenv
-supabase
 playwright
 seleniumbase
+supabase
+requests
+python-dotenv
+nest_asyncio

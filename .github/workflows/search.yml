@@ -2,51 +2,53 @@ name: Railway Search Engine
 on:
   workflow_dispatch:
     inputs:
-      job_id:
-        description: 'Internal Job ID'
-        required: true
-      chat_id:
-        description: 'Telegram Chat ID'
-        required: true
-      username:
-        description: 'Telegram Username'
-        required: true
-      from_station:
-        description: 'From'
-        required: true
-      to_station:
-        description: 'To'
-        required: true
-      journey_date:
-        description: 'Date'
-        required: true
-      seat_class:
-        description: 'Class Regex'
-        required: true
-      user_phone:
-        description: 'Phone for session'
-        required: false
-      user_pass:
-        description: 'Password for session'
-        required: false  
+      job_id: { description: 'Internal Job ID', required: true }
+      chat_id: { description: 'Telegram Chat ID', required: true }
+      username: { description: 'Telegram Username', required: true }
+      from_station: { description: 'From', required: true }
+      to_station: { description: 'To', required: true }
+      journey_date: { description: 'Date', required: true }
+      seat_class: { description: 'Class Regex', required: true }
+      user_phone: { description: 'Phone for session', required: false }
+      user_pass: { description: 'Password for session', required: false }  
 
 jobs:
   run-search:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          # Caches pip dependencies automatically
+          cache: 'pip' 
 
-      - name: Install Dependencies
+      # 1. Cache Playwright Browsers (The heaviest part)
+      - name: Cache Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Python Dependencies
         run: |
-          sudo apt update
-          sudo apt install -y google-chrome-stable xvfb
           pip install playwright seleniumbase supabase requests python-dotenv nest_asyncio
-          playwright install chromium
-          playwright install-deps
+
+      # 2. Install Playwright Browsers ONLY if cache miss
+      - name: Install Playwright Chromium & System Deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      # 3. Small system utilities (Xvfb is usually pre-installed, but we ensure it)
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm-dev
 
       - name: Run Monitor
         env:
