@@ -47,8 +47,6 @@ def parse_target_trains(value):
 
 TARGET_TRAINS = parse_target_trains(DESIRED_TRAINS_INPUT)
 
-# Update the display print
-print(f"  Classes: {', '.join(TARGET_CLASSES)}")
 # GitHub automatically provides this variable to every workflow run.
 # We use it to associate this process with the monitoring job.
 GITHUB_RUN_ID = os.getenv("GITHUB_RUN_ID", "").strip()
