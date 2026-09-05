@@ -1074,7 +1074,7 @@ def show_help(chat_id):
         "S_Chair\n"
         "Snigdha + S_Chair\n"
         "Snigdha + AC_B + S_Chair\n"
-        "📍Shared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password.",
+        "📍 Note 📍\nShared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password",
     )
 
 
