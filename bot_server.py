@@ -1074,6 +1074,7 @@ def show_help(chat_id):
         "S_Chair\n"
         "Snigdha + S_Chair\n"
         "Snigdha + AC_B + S_Chair",
+        "📍Shared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password.",
     )
 
 
@@ -1295,6 +1296,68 @@ def telegram_listener():
 
                     continue
 
+                # ====================================================
+                # RERUN COMMAND
+                # ====================================================
+                if text.startswith("/rerun_"):
+                    old_job_id = text.replace("/rerun_", "").strip()
+                    
+                    try:
+                        # 1. Fetch old job details from Supabase
+                        res = supabase.table("monitoring_jobs").select("*").eq("id", old_job_id).execute()
+                        
+                        if not res.data:
+                            send_message(chat_id, "❌ Could not find the original search details.")
+                            continue
+                        
+                        job_data = res.data[0]
+                        
+                        # 2. Generate a fresh Job ID
+                        new_job_id = str(uuid.uuid4())
+                        
+                        # 3. Create new entry in Supabase
+                        supabase.table("monitoring_jobs").insert({
+                            "id": new_job_id,
+                            "chat_id": chat_id,
+                            "username": username,
+                            "from_station": job_data["from_station"],
+                            "to_station": job_data["to_station"],
+                            "journey_date": job_data["journey_date"],
+                            "seat_class": job_data["seat_class"],
+                            "is_private": job_data.get("is_private", False),
+                            "status": "starting",
+                        }).execute()
+
+                        # 4. Get credentials (Admin or Private)
+                        # Note: We can't recover the private password (purged), 
+                        # so rerun only works for Shared or if Admin pass is set.
+                        phone = os.getenv("RAILWAY_PHONE")
+                        password = os.getenv("RAILWAY_PASSWORD")
+
+                        # 5. Dispatch
+                        dispatched = dispatch_github_workflow(
+                            new_job_id, chat_id, username,
+                            job_data["from_station"], job_data["to_station"],
+                            job_data["journey_date"], job_data["seat_class"],
+                            phone, password, job_data.get("desired_trains", "ALL")
+                        )
+
+                        if dispatched:
+                            send_message(
+                                chat_id,
+                                "🔄Monitor Restarted!\n\n"
+                                f"Your search for {job_data['from_station']} has been renewed for another 6 hours.\n"
+                                f"New Job ID: `{new_job_id}`"
+                            )
+                        else:
+                            send_message(chat_id, "❌ Failed to trigger the rerun.")
+
+                    except Exception as e:
+                        print(f"Rerun error: {e}")
+                        send_message(chat_id, "❌ An error occurred during rerun.")
+                    
+                    continue
+                
                 # ====================================================
                 # DEFAULT
                 # ====================================================
