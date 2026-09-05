@@ -715,7 +715,7 @@ def process_search_message(chat_id, username, text):
             journey_date=text, is_private=state.get("is_private"), 
             phone=state.get("phone"), password=state.get("password")
         )
-        send_message(chat_id, "💺 Enter class(es) (e.g., Snigdha + S_Chair):")
+        send_message(chat_id, "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov (e.g., Snigdha + S_Chair):")
         return True
 
     # 6. CLASS -> Move to TRAIN selection
@@ -741,8 +741,8 @@ def process_search_message(chat_id, username, text):
         }
         send_message(
             chat_id,
-            "🚆 **Which trains do you want to monitor?**\n\n"
-            "Enter train names separated by + (e.g., `Parabat + Upavan`)\n"
+            "🚆 Which trains do you want to monitor?\n\n"
+            "(e.g., `Parabat + Upavan`)\n"
             "Or click 'All Trains'.",
             reply_markup=markup
         )
