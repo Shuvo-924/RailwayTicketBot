@@ -687,7 +687,7 @@ def main():
                 sb.sleep(1)
 
             print("Filling credentials...")
-            sb.wait_for_element_visible("#mobile_number", timeout=10)
+            sb.wait_for_element_visible("#mobile_number")
             sb.type("#mobile_number", USER_PHONE)
             sb.type("#password", USER_PASS)  # correct password field id
 
