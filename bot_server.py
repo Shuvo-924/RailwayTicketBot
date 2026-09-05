@@ -470,7 +470,7 @@ def validate_date(date_text):
 
 
 def dispatch_github_workflow(
-    job_id, chat_id, username, from_s, to_s, date, s_class, phone, pwd
+    job_id, chat_id, username, from_s, to_s, date, s_class, phone, pwd, trains
 ):
 
     url = (
@@ -496,7 +496,8 @@ def dispatch_github_workflow(
             "journey_date": date,
             "seat_class": s_class,
             "user_phone": phone,
-            "user_pass": pwd,  # New Inputs
+            "user_pass": pwd,
+            "desired_trains": trains,
         },
     }
 
@@ -786,6 +787,65 @@ def process_search_message(chat_id, username, text):
 
         selected_classes, class_regex = parsed
 
+        set_state(
+            chat_id,
+            "desired_trains",
+            from_station=state["from_station"],
+            to_station=state["to_station"],
+            journey_date=state["journey_date"],
+            seat_class=class_regex,
+            class_display=" + ".join(selected_classes)
+        )
+
+        markup = {
+            "keyboard": [[{"text": "All Trains"}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True
+        }
+
+        send_message(
+            chat_id,
+            "🚆 **Which trains do you want to monitor?**\n\n"
+            "Enter train names separated by + (e.g., `Parabat + Upavan`)\n"
+            "Or click the button below to monitor all trains.",
+            reply_markup=markup
+        )
+        return True
+
+    if step == "desired_trains":
+        trains_text = text.strip()
+        display_trains = "All Trains" if trains_text.upper() == "ALL TRAINS" else trains_text
+
+        from_station = state["from_station"]
+        to_station = state["to_station"]
+        journey_date = state["journey_date"]
+        class_display = state["class_display"]
+
+        send_message(
+            chat_id,
+            "🔎 **Confirm your search:**\n\n"
+            f"From: {from_station}\n"
+            f"To: {to_station}\n"
+            f"Date: {journey_date}\n"
+            f"Class: {class_display}\n"
+            f"Trains: {display_trains}\n\n"
+            "Type YES to start the monitor\n"
+            "or NO to cancel.",
+            reply_markup={"remove_keyboard": True},
+        )
+
+        set_state(
+            chat_id,
+            "confirmation",
+            from_station=from_station,
+            to_station=to_station,
+            journey_date=journey_date,
+            seat_class=state["seat_class"],
+            class_display=class_display,
+            desired_trains=trains_text if trains_text.upper() != "ALL TRAINS" else "ALL"
+        )
+        return True
+
         from_station = state["from_station"]
         to_station = state["to_station"]
         journey_date = state["journey_date"]
@@ -853,7 +913,7 @@ def process_search_message(chat_id, username, text):
                 job_id, chat_id, username,
                 state["from_station"], state["to_station"],
                 state["journey_date"], state["seat_class"],
-                phone, password
+                phone, password, state.get("desired_trains", "ALL")
             )
 
             if dispatched:
