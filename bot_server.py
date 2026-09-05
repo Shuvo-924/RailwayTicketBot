@@ -641,19 +641,11 @@ def start_new_search(chat_id):
 # PROCESS SEARCH
 # ============================================================
 
-
 def process_search_message(chat_id, username, text):
-
-    state = USER_STATES.get(chat_id)
-
-    if not state:
-        return False
-
-    step = state["step"]
-
     state = USER_STATES.get(chat_id)
     if not state:
         return False
+
     step = state["step"]
 
     # 1. Choose Mode
@@ -663,7 +655,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 "🔐 Private Session Selected.\n\nPlease enter your Railway Mobile Number:",
-                reply_markup={"remove_keyboard": True} # Clear the mode buttons
+                reply_markup={"remove_keyboard": True}
             )
         else:
             queue_pos = get_queue_position()
@@ -671,7 +663,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 f"🤝 Shared Session Selected.\nThere are currently {queue_pos} searches in queue.\n\nEnter FROM station:",
-                reply_markup={"remove_keyboard": True} # Clear the mode buttons
+                reply_markup={"remove_keyboard": True}
             )
         return True
 
@@ -695,198 +687,102 @@ def process_search_message(chat_id, username, text):
         send_message(chat_id, "Station details time!\n\nEnter FROM station:")
         return True
 
-    # --------------------------------------------------------
-    # FROM
-    # --------------------------------------------------------
-
+    # 3. FROM
     if step == "from_station":
-        set_state(chat_id, "to_station", from_station=text)
-
+        set_state(chat_id, "to_station", from_station=text, is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password"))
         send_message(chat_id, "📍 Enter your TO station.\n\nExample:\nChattogram")
-
         return True
 
-    # --------------------------------------------------------
-    # TO
-    # --------------------------------------------------------
-
+    # 4. TO
     if step == "to_station":
         set_state(
-            chat_id, "journey_date", from_station=state["from_station"], to_station=text
+            chat_id, "journey_date", 
+            from_station=state["from_station"], to_station=text,
+            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
         )
-
-        send_message(
-            chat_id,
-            "📅 Enter journey date.\n\nFormat:\nYYYY-MM-DD\n\nExample:\n2026-09-20",
-        )
-
+        send_message(chat_id, "📅 Enter journey date.\n\nFormat:\nYYYY-MM-DD\n\nExample:\n2026-09-20")
         return True
 
-    # --------------------------------------------------------
-    # DATE
-    # --------------------------------------------------------
-
+    # 5. DATE
     if step == "journey_date":
         if not validate_date(text):
-            send_message(
-                chat_id,
-                "❌ Invalid date.\n\n"
-                "Please use YYYY-MM-DD and make sure "
-                "the date isn't in the past.",
-            )
-
+            send_message(chat_id, "❌ Invalid date. Use YYYY-MM-DD.")
             return True
 
         set_state(
-            chat_id,
-            "seat_class",
-            from_station=state["from_station"],
-            to_station=state["to_station"],
-            journey_date=text,
+            chat_id, "seat_class",
+            from_station=state["from_station"], to_station=state["to_station"],
+            journey_date=text, is_private=state.get("is_private"), 
+            phone=state.get("phone"), password=state.get("password")
         )
-
-        send_message(
-            chat_id,
-            "💺 Enter class(es).\n\n"
-            "You can select multiple classes using +.\n\n"
-            "Examples:\n"
-            "• Snigdha\n"
-            "• S_Chair\n"
-            "• Snigdha + S_Chair\n"
-            "• Snigdha + AC_B + S_Chair\n\n"
-            "Available:\n"
-            "SNIGDHA\n"
-            "S_CHAIR\n"
-            "AC_B\n"
-            "AC_S\n"
-            "F_BERTH\n"
-            "F_SEAT\n"
-            "F_CHAIR",
-        )
-
+        send_message(chat_id, "💺 Enter class(es) (e.g., Snigdha + S_Chair):")
         return True
 
-    # --------------------------------------------------------
-    # CLASS
-    # --------------------------------------------------------
-
+    # 6. CLASS -> Move to TRAIN selection
     if step == "seat_class":
         parsed = parse_classes(text)
-
         if not parsed:
-            send_message(
-                chat_id,
-                "❌ I couldn't understand the class.\n\n"
-                "Examples:\n"
-                "Snigdha\n"
-                "S_Chair\n"
-                "Snigdha + S_Chair",
-            )
-
+            send_message(chat_id, "❌ I couldn't understand the class.")
             return True
 
         selected_classes, class_regex = parsed
+        set_state(
+            chat_id, "desired_trains",
+            from_station=state["from_station"], to_station=state["to_station"],
+            journey_date=state["journey_date"], seat_class=class_regex,
+            class_display=" + ".join(selected_classes),
+            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
+        )
+
+        markup = {
+            "keyboard": [[{"text": "All Trains"}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True
+        }
+        send_message(
+            chat_id,
+            "🚆 **Which trains do you want to monitor?**\n\n"
+            "Enter train names separated by + (e.g., `Parabat + Upavan`)\n"
+            "Or click 'All Trains'.",
+            reply_markup=markup
+        )
+        return True
+
+    # 7. TRAINS -> Move to CONFIRMATION
+    if step == "desired_trains":
+        trains_text = text.strip()
+        display_trains = "All Trains" if trains_text.upper() == "ALL TRAINS" else trains_text
 
         set_state(
-            chat_id,
-            "desired_trains",
-            from_station=state["from_station"],
-            to_station=state["to_station"],
-            journey_date=state["journey_date"],
-            seat_class=class_regex,
-            class_display=" + ".join(selected_classes)
-        )
-
-        markup = {
-            "keyboard": [[{"text": "All Trains"}]],
-            "resize_keyboard": True,
-            "one_time_keyboard": True
-        }
-
-        send_message(
-            chat_id,
-            "🚆 **Which trains do you want to monitor?**\n\n"
-            "Enter train names separated by + (e.g., `Parabat + Upavan`)\n"
-            "Or click the button below to monitor all trains.",
-            reply_markup=markup
-        )
-        return True
-
-    if step == "desired_trains":
-        trains_text = text.strip()
-        display_trains = "All Trains" if trains_text.upper() == "ALL TRAINS" else trains_text
-
-        from_station = state["from_station"]
-        to_station = state["to_station"]
-        journey_date = state["journey_date"]
-        class_display = state["class_display"]
-
-        send_message(
-            chat_id,
-            "🔎 **Confirm your search:**\n\n"
-            f"From: {from_station}\n"
-            f"To: {to_station}\n"
-            f"Date: {journey_date}\n"
-            f"Class: {class_display}\n"
-            f"Trains: {display_trains}\n\n"
-            "Type YES to start the monitor\n"
-            "or NO to cancel.",
-            reply_markup={"remove_keyboard": True},
-        )
-
-        set_state(
-            chat_id,
-            "confirmation",
-            from_station=from_station,
-            to_station=to_station,
-            journey_date=journey_date,
-            seat_class=state["seat_class"],
-            class_display=class_display,
-            desired_trains=trains_text if trains_text.upper() != "ALL TRAINS" else "ALL"
-        )
-        return True
-
-        from_station = state["from_station"]
-        to_station = state["to_station"]
-        journey_date = state["journey_date"]
-
-        class_display = " + ".join(selected_classes)
+            chat_id, "confirmation",
+            from_station=state["from_station"], to_station=state["to_station"],
+            journey_date=state["journey_date"], seat_class=state["seat_class"],
+            class_display=state["class_display"],
+            desired_trains=trains_text if trains_text.upper() != "ALL TRAINS" else "ALL",
+            display_trains=display_trains,
+            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
+        )
 
         send_message(
             chat_id,
-            "🔎 Please confirm your search:\n\n"
-            f"From: {from_station}\n"
-            f"To: {to_station}\n"
-            f"Date: {journey_date}\n"
-            f"Class: {class_display}\n\n"
-            f"Regex: `{class_regex}`\n\n"
-            "Type YES to start the monitor\n"
-            "or NO to cancel.",
-            reply_markup={"remove_keyboard": True},
+            "🔎 **Confirm your search:**\n\n"
+            f"From: {state['from_station']}\n"
+            f"To: {state['to_station']}\n"
+            f"Date: {state['journey_date']}\n"
+            f"Class: {state['class_display']}\n"
+            f"Trains: {display_trains}\n\n"
+            "Type YES to start or NO to cancel.",
+            reply_markup={"remove_keyboard": True}
         )
-
-        set_state(
-            chat_id,
-            "confirmation",
-            from_station=from_station,
-            to_station=to_station,
-            journey_date=journey_date,
-            seat_class=class_regex,
-            class_display=class_display,
-        )
-
         return True
 
-    # --------------------------------------------------------
-    # CONFIRMATION
-    # --------------------------------------------------------
-
+    # 8. CONFIRMATION
     if step == "confirmation":
         if text.upper() in ("YES", "Y"):
             job_id = str(uuid.uuid4())
             is_priv = state.get("is_private", False)
 
-            # 1. Create Job in Supabase
+            # Insert Job
             supabase.table("monitoring_jobs").insert({
                 "id": job_id,
                 "chat_id": chat_id,
@@ -899,16 +795,11 @@ def process_search_message(chat_id, username, text):
                 "status": "starting",
             }).execute()
 
-            # 2. Prepare credentials
             phone = state.get("phone", os.getenv("RAILWAY_PHONE"))
             password = state.get("password", os.getenv("RAILWAY_PASSWORD"))
 
-            send_message(
-                chat_id,
-                f"🚀 Dispatching { 'Private' if is_priv else 'Shared' } job...\nPlease wait for the cloud engine to start."
-            )
+            send_message(chat_id, f"🚀 Dispatching {'Private' if is_priv else 'Shared'} job...")
 
-            # 3. Dispatch to GitHub
             dispatched = dispatch_github_workflow(
                 job_id, chat_id, username,
                 state["from_station"], state["to_station"],
@@ -917,32 +808,22 @@ def process_search_message(chat_id, username, text):
             )
 
             if dispatched:
-                # 4. Success Flow
                 if is_priv:
-                    send_message(
-                        chat_id,
-                        "🔒 Private session dispatched. Your credentials have been purged from our database."
-                    )
+                    send_message(chat_id, "🔒 Credentials purged from database.")
                 
-                # Send the final confirmation message
                 send_message(
                     chat_id,
                     "✅ Monitor started!\n\n"
-                    f"Job ID:\n`{job_id}`\n\n"
+                    f"Job ID: `{job_id}`\n"
                     f"🚆 {state['from_station']} → {state['to_station']}\n"
                     f"📅 {state['journey_date']}\n"
-                    f"💺 {state['class_display']}\n\n"
-                    "I'll notify you here the moment tickets are found.",
+                    f"💺 {state['class_display']}\n"
+                    f"🚂 {state['display_trains']}",
                     reply_markup=main_menu()
                 )
             else:
-                # 5. Failure Flow
                 supabase.table("monitoring_jobs").update({"status": "failed"}).eq("id", job_id).execute()
-                send_message(
-                    chat_id, 
-                    "❌ Failed to start the cloud engine. Please try again later or contact admin.",
-                    reply_markup=main_menu()
-                )
+                send_message(chat_id, "❌ GitHub Dispatch Failed.", reply_markup=main_menu())
 
             clear_state(chat_id)
             return True
@@ -952,11 +833,7 @@ def process_search_message(chat_id, username, text):
             send_message(chat_id, "❌ Search cancelled.", reply_markup=main_menu())
             return True
 
-        send_message(chat_id, "Please type YES to start or NO to cancel.")
-        return True
-
     return False
-
 
 # ============================================================
 # COMMANDS
