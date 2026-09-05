@@ -25,6 +25,11 @@ load_dotenv()
 
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
+# Near your other global variables
+SCRIPT_START_TIME = time.time()
+# 5 hours and 45 minutes (to give it time to clean up)
+MAX_RUNTIME_SECONDS = 5.75 * 3600
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 RAILWAY_PHONE = os.getenv("RAILWAY_PHONE", "").strip()
@@ -524,6 +529,21 @@ def monitor_loop(page):
     FOUND = False
 
     while True:
+        elapsed_time = time.time() - SCRIPT_START_TIME
+        if elapsed_time > MAX_RUNTIME_SECONDS:
+            print("\n⏰ 6-hour limit approaching. Notifying user and terminating.")
+
+        rerun_command = f"/rerun_{JOB_ID}"
+            timeout_msg = (
+                "⏳Monitor Timeout (6 Hours)\n\n"
+                f"The search for {FROM_STATION} → {TO_STATION} has reached the cloud time limit.\n\n"
+                "To continue for another 6 hours, click the command below:\n"
+                f"{rerun_command}"
+            )
+            notify_user(timeout_msg)
+            update_job_status("completed")
+            return
+        
         if STOP_REQUESTED:
             print("\n🛑 Monitoring cancelled.")
 
