@@ -36,7 +36,19 @@ CHAT_ID = os.getenv("CHAT_ID", "").strip()
 USERNAME = os.getenv("USERNAME", "").strip()
 
 SEAT_CLASS_INPUT = os.getenv("SEAT_CLASS", "").strip()
+DESIRED_TRAINS_INPUT = os.getenv("DESIRED_TRAINS", "").strip()
 
+def parse_target_trains(value):
+    if not value or value.upper() in ["ALL", "ANY", "SKIP"]:
+        return [] # Empty list means all trains
+    # Split by +, comma, pipe, or semicolon
+    raw = re.split(r"[+,;|]", value)
+    return [t.strip().upper() for t in raw if t.strip()]
+
+TARGET_TRAINS = parse_target_trains(DESIRED_TRAINS_INPUT)
+
+# Update the display print
+print(f"  Classes: {', '.join(TARGET_CLASSES)}")
 # GitHub automatically provides this variable to every workflow run.
 # We use it to associate this process with the monitoring job.
 GITHUB_RUN_ID = os.getenv("GITHUB_RUN_ID", "").strip()
@@ -57,7 +69,7 @@ SUPPORTED_CLASSES = {
 
 RAILWAY_URL = "https://eticket.railway.gov.bd/login"
 
-DYNAMIC_CHECK_SECONDS = 5
+DYNAMIC_CHECK_SECONDS = 1
 HARD_REFRESH_SECONDS = 60
 
 # Paths
@@ -99,7 +111,6 @@ if len(journey_date_parts) != 3:
 
 
 journey_datetime = datetime.strptime(JOURNEY_DATE_INPUT, "%Y-%m-%d")
-
 
 def parse_target_classes(value):
     """
@@ -176,7 +187,6 @@ def parse_target_classes(value):
 
 TARGET_CLASSES = parse_target_classes(SEAT_CLASS_INPUT)
 
-
 def parse_journey_date(value):
     value = value.strip()
     # Try common formats
@@ -204,6 +214,7 @@ print("TARGET CONFIGURED:")
 print(f"  Route:   {FROM_STATION} -> {TO_STATION}")
 print(f"  Date:    {JOURNEY_DATE_INPUT}")
 print(f"  Classes: {', '.join(TARGET_CLASSES)}")
+print(f"  Trains:  {', '.join(TARGET_TRAINS) if TARGET_TRAINS else 'ALL TRAINS'}")
 print("-" * 30)
 
 
@@ -532,7 +543,15 @@ def monitor_loop(page):
             data = get_seats_from_page(page)
 
             for train, classes in data.items():
+                # --- NEW TRAIN FILTERING ---
+                if TARGET_TRAINS:
+                    # Check if any target train name is inside the actual train name (e.g., "PARABAT" in "PARABAT EXPRESS (709)")
+                    match_found = any(target in train for target in TARGET_TRAINS)
+                    if not match_found:
+                        continue
+
                 for class_name, count in classes.items():
+                    # ... rest of your existing notification logic ...
                     key = f"{train}|{class_name}"
 
                     previous_count = previous_state.get(key, 0)
