@@ -715,7 +715,7 @@ def process_search_message(chat_id, username, text):
             journey_date=text, is_private=state.get("is_private"), 
             phone=state.get("phone"), password=state.get("password")
         )
-        send_message(chat_id, "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov (e.g., Snigdha + S_Chair):")
+        send_message(chat_id, "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov\n(e.g. Snigdha + S_Chair):")
         return True
 
     # 6. CLASS -> Move to TRAIN selection
@@ -742,7 +742,7 @@ def process_search_message(chat_id, username, text):
         send_message(
             chat_id,
             "🚆 Which trains do you want to monitor?\n\n"
-            "(e.g., `Parabat + Upavan`)\n"
+            "(e.g. Parabat + Upavan)\n"
             "Or click 'All Trains'.",
             reply_markup=markup
         )
@@ -765,7 +765,7 @@ def process_search_message(chat_id, username, text):
 
         send_message(
             chat_id,
-            "🔎 **Confirm your search:**\n\n"
+            "🔎 Confirm your search:\n\n"
             f"From: {state['from_station']}\n"
             f"To: {state['to_station']}\n"
             f"Date: {state['journey_date']}\n"
@@ -1073,7 +1073,7 @@ def show_help(chat_id):
         "Snigdha\n"
         "S_Chair\n"
         "Snigdha + S_Chair\n"
-        "Snigdha + AC_B + S_Chair",
+        "Snigdha + AC_B + S_Chair\n"
         "📍Shared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password.",
     )
 
