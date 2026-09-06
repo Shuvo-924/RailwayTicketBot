@@ -382,35 +382,92 @@ def notify_user(message):
     Send notification to the owner of this monitoring job.
     """
 
+#     try:
+#         # Query for all running jobs with the same parameters
+#         res = supabase.table("monitoring_jobs").select("chat_id").match({
+#             "from_station": FROM_STATION,
+#             "to_station": TO_STATION,
+#             "journey_date": JOURNEY_DATE_INPUT,
+#             "seat_class": SEAT_CLASS_INPUT,
+#             "desired_trains": DESIRED_TRAINS_INPUT,
+#             "status": "running"
+#         }).execute()
+
+#         if res.data:
+#             # Create a unique set of chat IDs to avoid duplicate messages to one person
+#             chat_ids = {str(row["chat_id"]) for row in res.data}
+#             print(f"📣 Notifying {len(chat_ids)} users...")
+#             for cid in chat_ids:
+#                 send_telegram(cid, message)
+#             return True
+#     except Exception as e:
+#         print(f"⚠️ Multi-notify error: {e}")
+#         # Fallback to the original CHAT_ID if DB query fails
+#         return send_telegram(CHAT_ID, message)
+
+
+# def broadcast_to_all(message):
+#     subscribers = get_all_subscribers()
+#     print(f"\nBroadcasting to {len(subscribers)} people...")
+#     for chat_id in subscribers:
+#         send_telegram(chat_id, message)
+    print(f"DEBUG: Starting notification process for journey...")
+    
     try:
-        # Query for all running jobs with the same parameters
-        res = supabase.table("monitoring_jobs").select("chat_id").match({
+        # 1. Find all RUNNING jobs for this exact journey
+        # We query monitoring_jobs to get the list of CHAT_IDs
+        jobs_res = supabase.table("monitoring_jobs").select("chat_id").match({
             "from_station": FROM_STATION,
             "to_station": TO_STATION,
             "journey_date": JOURNEY_DATE_INPUT,
             "seat_class": SEAT_CLASS_INPUT,
-            "desired_trains": DESIRED_TRAINS_INPUT,
             "status": "running"
         }).execute()
 
-        if res.data:
-            # Create a unique set of chat IDs to avoid duplicate messages to one person
-            chat_ids = {str(row["chat_id"]) for row in res.data}
-            print(f"📣 Notifying {len(chat_ids)} users...")
-            for cid in chat_ids:
-                send_telegram(cid, message)
-            return True
+        if not jobs_res.data:
+            print("DEBUG: No active jobs found in DB for this journey. Using fallback CHAT_ID.")
+            chat_ids = [CHAT_ID]
+        else:
+            chat_ids = list(set([str(row["chat_id"]) for row in jobs_res.data]))
+        
+        print(f"DEBUG: Found {len(chat_ids)} users to notify: {chat_ids}")
+
+        # 2. Get FCM Tokens for these users from the 'subscribers' table
+        user_res = supabase.table("subscribers").select("chat_id, fcm_token").in_("chat_id", chat_ids).execute()
+        
+        tokens = [row["fcm_token"] for row in user_res.data if row.get("fcm_token")]
+        
+        # 3. Send Telegram Messages
+        for cid in chat_ids:
+            send_telegram(cid, message)
+
+        # 4. Trigger Alarms if tokens exist
+        if not tokens:
+            print("DEBUG: No FCM tokens found in subscribers table. Alarm skipped.")
+            return
+
+        print(f"DEBUG: Attempting to trigger siren for {len(tokens)} devices...")
+        
+        message = messaging.MulticastMessage(
+            notification=messaging.Notification(
+                title="🚨 TICKET RELEASED! 🚨",
+                body=f"{FROM_STATION} to {TO_STATION}",
+            ),
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(
+                    channel_id='railway_siren_v2', 
+                    sound='iphone_alarm', # Matches your raw folder file
+                ),
+            ),
+            tokens=tokens,
+        )
+        
+        response = messaging.send_multicast(message)
+        print(f"✅ Alarms triggered: {response.success_count} success, {response.failure_count} failure")
+
     except Exception as e:
-        print(f"⚠️ Multi-notify error: {e}")
-        # Fallback to the original CHAT_ID if DB query fails
-        return send_telegram(CHAT_ID, message)
-
-
-def broadcast_to_all(message):
-    subscribers = get_all_subscribers()
-    print(f"\nBroadcasting to {len(subscribers)} people...")
-    for chat_id in subscribers:
-        send_telegram(chat_id, message)
+        print(f"❌ CRITICAL NOTIFICATION ERROR: {e}")
 
 
 # ============================================================
