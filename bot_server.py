@@ -284,7 +284,7 @@ def verify_code(chat_id, code, username):
         if expires_at.tzinfo:
             now = datetime.now(expires_at.tzinfo)
         else:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
         if now > expires_at:
             return False, (
