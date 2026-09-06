@@ -23,37 +23,62 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 def trigger_siren_alarm(message_body):
-    # 1. Get tokens of ALL users watching this journey
-    res = supabase.table("monitoring_jobs").select("subscribers(fcm_token)").match({
-        "from_station": FROM_STATION,
-        "to_station": TO_STATION,
-        "journey_date": JOURNEY_DATE_INPUT,
-        "status": "running"
-    }).execute()
+    print("DEBUG: Starting siren trigger process...")
+    try:
+        # STEP 1: Find all Chat IDs monitoring this journey
+        # We query the monitoring_jobs table first
+        jobs_res = supabase.table("monitoring_jobs").select("chat_id").match({
+            "from_station": FROM_STATION,
+            "to_station": TO_STATION,
+            "journey_date": JOURNEY_DATE_INPUT,
+            "status": "running"
+        }).execute()
 
-    tokens = [r['subscribers']['fcm_token'] for r in res.data if r['subscribers'].get('fcm_token')]
+        if not jobs_res.data:
+            print("DEBUG: No matching jobs found in monitoring_jobs.")
+            return
 
-    if not tokens:
-        return
+        # Get unique chat IDs
+        chat_ids = list(set([str(r['chat_id']) for r in jobs_res.data]))
+        print(f"DEBUG: Found {len(chat_ids)} users watching this journey: {chat_ids}")
 
-    # 2. Send the "Siren" Packet
-    message = messaging.MulticastMessage(
-        notification=messaging.Notification(
-            title="🚨 TICKET FOUND! 🚨",
-            body=message_body,
-        ),
-        android=messaging.AndroidConfig(
-            priority='high',
-            notification=messaging.AndroidNotification(
-                channel_id='railway_alarm_v2', # MATCHES FLUTTER ID
-                sound='iphone_alarm', # MATCHES siren.mp3
+        # STEP 2: Get FCM Tokens from the subscribers table using those Chat IDs
+        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
+        
+        if not user_res.data:
+            print("DEBUG: No tokens found in subscribers table for these users.")
+            return
+
+        # Filter out null or empty tokens
+        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
+        print(f"DEBUG: Total valid FCM tokens found: {len(tokens)}")
+
+        if not tokens:
+            print("DEBUG: Tokens list is empty. Siren skipped.")
+            return
+
+        # STEP 3: Send the Siren signal via Firebase
+        # CRITICAL: Ensure channel_id matches your Flutter code exactly
+        message = messaging.MulticastMessage(
+            notification=messaging.Notification(
+                title="🚨 TICKET FOUND! 🚨",
+                body=message_body,
             ),
-        ),
-        tokens=tokens,
-    )
-    
-    response = messaging.send_multicast(message)
-    print(f"Alarms triggered: {response.success_count}")
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(
+                    channel_id='railway_siren_v2', # <--- ENSURE THIS MATCHES main.dart
+                    sound='iphone_alarm',          # Matches iphone_alarm.mp3
+                ),
+            ),
+            tokens=tokens,
+        )
+        
+        response = messaging.send_multicast(message)
+        print(f"✅ Alarms triggered: {response.success_count} success, {response.failure_count} failure")
+
+    except Exception as e:
+        print(f"❌ Siren Trigger Error: {e}")
 
 # Required to bridge the gap between SeleniumBase's internals and Playwright
 nest_asyncio.apply()
