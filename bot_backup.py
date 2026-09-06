@@ -25,8 +25,7 @@ if not firebase_admin._apps:
 def trigger_siren_alarm(message_body):
     print("DEBUG: Starting siren trigger process...")
     try:
-        # STEP 1: Find all Chat IDs monitoring this journey
-        # We query the monitoring_jobs table first
+        # 1. Find all Chat IDs monitoring this journey
         jobs_res = supabase.table("monitoring_jobs").select("chat_id").match({
             "from_station": FROM_STATION,
             "to_station": TO_STATION,
@@ -38,27 +37,25 @@ def trigger_siren_alarm(message_body):
             print("DEBUG: No matching jobs found in monitoring_jobs.")
             return
 
-        # Get unique chat IDs
         chat_ids = list(set([str(r['chat_id']) for r in jobs_res.data]))
-        print(f"DEBUG: Found {len(chat_ids)} users watching this journey: {chat_ids}")
+        print(f"DEBUG: Found {len(chat_ids)} users watching this journey.")
 
-        # STEP 2: Get FCM Tokens from the subscribers table using those Chat IDs
+        # 2. Get FCM Tokens from the subscribers table
         user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
         
         if not user_res.data:
-            print("DEBUG: No tokens found in subscribers table for these users.")
+            print("DEBUG: No tokens found in subscribers table.")
             return
 
-        # Filter out null or empty tokens
         tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
         print(f"DEBUG: Total valid FCM tokens found: {len(tokens)}")
 
         if not tokens:
-            print("DEBUG: Tokens list is empty. Siren skipped.")
             return
 
-        # STEP 3: Send the Siren signal via Firebase
-        # CRITICAL: Ensure channel_id matches your Flutter code exactly
+        # 3. Create the Multicast Message
+        # Note: We ignore the warning about 'tokens' as it is still the standard for 
+        # reaching device-specific registration tokens.
         message = messaging.MulticastMessage(
             notification=messaging.Notification(
                 title="🚨 TICKET FOUND! 🚨",
@@ -67,14 +64,16 @@ def trigger_siren_alarm(message_body):
             android=messaging.AndroidConfig(
                 priority='high',
                 notification=messaging.AndroidNotification(
-                    channel_id='railway_siren_v2', # <--- ENSURE THIS MATCHES main.dart
-                    sound='iphone_alarm',          # Matches iphone_alarm.mp3
+                    channel_id='railway_siren_v2', # Ensure this matches your Flutter main.dart
+                    sound='iphone_alarm',
                 ),
             ),
             tokens=tokens,
         )
         
-        response = messaging.send_multicast(message)
+        # 4. FIXED: Use send_each_for_multicast instead of send_multicast
+        response = messaging.send_each_for_multicast(message)
+        
         print(f"✅ Alarms triggered: {response.success_count} success, {response.failure_count} failure")
 
     except Exception as e:
