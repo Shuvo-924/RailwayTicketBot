@@ -822,7 +822,7 @@ def process_search_message(chat_id, username, text):
 
     # 8. CONFIRMATION
     if step == "confirmation":
-        if text.upper() in ("CONFIRM", "C"):
+        if "Confirm" in text:
             job_id = str(uuid.uuid4())
             is_priv = state.get("is_private", False)
             existing_job_id = None
@@ -941,7 +941,7 @@ def process_search_message(chat_id, username, text):
             clear_state(chat_id)
             return True
 
-        if text.upper() in ("NO", "N", "CANCEL"):
+        if "Cancel" in text:
             clear_state(chat_id)
             send_message(chat_id, "❌ Search cancelled.", reply_markup=main_menu())
             return True
