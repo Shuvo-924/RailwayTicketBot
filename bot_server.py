@@ -638,6 +638,33 @@ def start_new_search(chat_id):
         reply_markup=markup,
     )
 
+def cleanup_old_jobs(chat_id):
+    """Ensures the user only has the 10 most recent searches in the database."""
+    try:
+        # 1. Fetch all job IDs for this user, ordered by most recent first
+        res = (
+            supabase.table("monitoring_jobs")
+            .select("id")
+            .eq("chat_id", chat_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        
+        if res.data and len(res.data) > 10:
+            # 2. Identify IDs that are outside the top 10
+            # res.data[10:] contains all items from index 10 onwards
+            ids_to_delete = [item["id"] for item in res.data[10:]]
+            
+            # 3. Delete them from Supabase
+            supabase.table("monitoring_jobs") \
+                .delete() \
+                .in_("id", ids_to_delete) \
+                .execute()
+            
+            print(f"🧹 Cleanup: Removed {len(ids_to_delete)} old jobs for user {chat_id}")
+            
+    except Exception as e:
+        print(f"⚠️ Cleanup error: {e}")
 
 # ============================================================
 # PROCESS SEARCH
@@ -866,6 +893,8 @@ def process_search_message(chat_id, username, text):
                     }
                 ).execute()
 
+                cleanup_old_jobs(chat_id)
+
                 send_message(
                     chat_id,
                     "🤝 Matching Monitor Found!\n\n"
@@ -946,6 +975,30 @@ def process_search_message(chat_id, username, text):
             send_message(chat_id, "❌ Search cancelled.", reply_markup=main_menu())
             return True
 
+    if step == "rerun_mode":
+        if "Private" in text:
+            set_state(chat_id, "rerun_phone", **state) # Carry over search data
+            send_message(chat_id, "🔐 Enter your Railway Mobile Number:", reply_markup={"remove_keyboard": True})
+        else:
+            # Re-use the existing confirmation logic to check for merging
+            set_state(chat_id, "confirmation", is_private=False, **state)
+            process_search_message(chat_id, username, "Confirm") # Auto-trigger "YES" logic
+        return True
+
+    if step == "rerun_phone":
+        state["phone"] = text
+        set_state(chat_id, "rerun_password", **state)
+        send_message(chat_id, "🔑 Enter your Railway Password:")
+        return True
+
+    if step == "rerun_password":
+        state["password"] = text
+        # Move to confirmation state with private details
+        set_state(chat_id, "confirmation", is_private=True, **state)
+        # Manually trigger the "YES" confirmation logic
+        process_search_message(chat_id, username, "Confirm")
+        return True
+    
     return False
 
 
@@ -1417,77 +1470,47 @@ def telegram_listener():
                 # ====================================================
                 if text.startswith("/rerun_"):
                     old_job_id = text.replace("/rerun_", "").strip()
-
+                    
                     try:
                         # 1. Fetch old job details from Supabase
-                        res = (
-                            supabase.table("monitoring_jobs")
-                            .select("*")
-                            .eq("id", old_job_id)
-                            .execute()
-                        )
-
+                        res = supabase.table("monitoring_jobs").select("*").eq("id", old_job_id).execute()
+                        
                         if not res.data:
-                            send_message(
-                                chat_id,
-                                "❌ Could not find the original search details.",
-                            )
+                            send_message(chat_id, "❌ Could not find the original search details.")
                             continue
-
-                        job_data = res.data[0]
-
-                        # 2. Generate a fresh Job ID
-                        new_job_id = str(uuid.uuid4())
-
-                        # 3. Create new entry in Supabase
-                        supabase.table("monitoring_jobs").insert(
-                            {
-                                "id": new_job_id,
-                                "chat_id": chat_id,
-                                "username": username,
-                                "from_station": job_data["from_station"],
-                                "to_station": job_data["to_station"],
-                                "journey_date": job_data["journey_date"],
-                                "seat_class": job_data["seat_class"],
-                                "is_private": job_data.get("is_private", False),
-                                "status": "starting",
-                            }
-                        ).execute()
-
-                        # 4. Get credentials (Admin or Private)
-                        # Note: We can't recover the private password (purged),
-                        # so rerun only works for Shared or if Admin pass is set.
-                        phone = os.getenv("RAILWAY_PHONE")
-                        password = os.getenv("RAILWAY_PASSWORD")
-
-                        # 5. Dispatch
-                        dispatched = dispatch_github_workflow(
-                            new_job_id,
-                            chat_id,
-                            username,
-                            job_data["from_station"],
-                            job_data["to_station"],
-                            job_data["journey_date"],
-                            job_data["seat_class"],
-                            phone,
-                            password,
-                            job_data.get("desired_trains", "ALL"),
+                        
+                        job = res.data[0]
+                        
+                        # 2. Set State to choose mode for the rerun
+                        set_state(
+                            chat_id, 
+                            "rerun_mode", 
+                            from_station=job["from_station"],
+                            to_station=job["to_station"],
+                            journey_date=job["journey_date"],
+                            seat_class=job["seat_class"],
+                            desired_trains=job.get("desired_trains", "ALL"),
+                            class_display=job["seat_class"].replace("|", " + ") # Approximation
                         )
 
-                        if dispatched:
-                            send_message(
-                                chat_id,
-                                "🔄Monitor Restarted!\n\n"
-                                f"Your search for {job_data['from_station']} has been renewed for another 6 hours.\n"
-                                f"New Job ID: `{new_job_id}`",
-                            )
-                        else:
-                            send_message(chat_id, "❌ Failed to trigger the rerun.")
+                        markup = {
+                            "keyboard": [[{"text": "🤝 Use Shared Account"}, {"text": "🔐 Use Private Login"}]],
+                            "resize_keyboard": True,
+                            "one_time_keyboard": True
+                        }
+
+                        send_message(
+                            chat_id,
+                            f"🔄 **Rerunning Search:**\n"
+                            f"🚆 {job['from_station']} → {job['to_station']}\n"
+                            f"📅 {job['journey_date']}\n\n"
+                            "Please choose which login credentials to use:",
+                            reply_markup=markup
+                        )
 
                     except Exception as e:
-                        print(f"Rerun error: {e}")
-                        send_message(chat_id, "❌ An error occurred during rerun.")
-
+                        print(f"Rerun init error: {e}")
+                        send_message(chat_id, "❌ An error occurred.")
                     continue
 
                 # ====================================================

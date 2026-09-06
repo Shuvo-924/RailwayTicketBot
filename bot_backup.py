@@ -588,149 +588,123 @@ signal.signal(signal.SIGTERM, handle_shutdown_signal)
 signal.signal(signal.SIGINT, handle_shutdown_signal)
 
 
-def monitor_loop(page):
-    print("\n" + "=" * 60)
-    print("             MONITORING ACTIVE")
-    print("=" * 60)
+def get_active_watchers():
+    """Fetches all users currently waiting for this specific route/date/class."""
+    try:
+        res = supabase.table("monitoring_jobs").select("id, chat_id, desired_trains").match({
+            "from_station": FROM_STATION,
+            "to_station": TO_STATION,
+            "journey_date": JOURNEY_DATE_INPUT,
+            "seat_class": SEAT_CLASS_INPUT,
+            "status": "running"
+        }).execute()
+        return res.data or []
+    except Exception as e:
+        print(f"Error fetching watchers: {e}")
+        return []
 
-    print(f"Route:   {FROM_STATION} → {TO_STATION}")
-    print(f"Date:    {JOURNEY_DATE_INPUT}")
-    print(f"Classes: {', '.join(TARGET_CLASSES)}")
-
-    if JOB_ID:
-        print(f"Job ID:  {JOB_ID}")
-
-    if GITHUB_RUN_ID:
-        print(f"Run ID:  {GITHUB_RUN_ID}")
-
-    print("=" * 60)
-
-    previous_state = {}
-
-    refresh_start = time.time()
-    FOUND = False
-
-    while True:
-        elapsed_time = time.time() - SCRIPT_START_TIME
-        if elapsed_time > MAX_RUNTIME_SECONDS:
-            print("\n⏰ 6-hour limit approaching. Notifying user and terminating.")
-
-            rerun_command = f"/rerun_{JOB_ID}"
-            timeout_msg = (
-                "⏳Monitor Timeout (6 Hours)\n\n"
-                f"The search for {FROM_STATION} → {TO_STATION} has reached the cloud time limit.\n\n"
-                "To continue for another 6 hours, click the command below:\n"
-                f"{rerun_command}"
+def notify_specific_users(jobs, message_text):
+    """Sends Telegram + Siren only to the users provided in the jobs list."""
+    # We use a set of chat_ids to ensure we don't send the same message 
+    # twice to one person if they have multiple identical jobs
+    chat_ids = list(set([str(j['chat_id']) for j in jobs]))
+    
+    # 1. Send Telegram Messages
+    for cid in chat_ids:
+        send_telegram(cid, message_text)
+    
+    # 2. Trigger Mobile Siren (Multicast to all tokens)
+    try:
+        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
+        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
+        if tokens:
+            message = messaging.MulticastMessage(
+                notification=messaging.Notification(title="🚨 TICKET FOUND!", body=message_text),
+                android=messaging.AndroidConfig(
+                    priority='high',
+                    notification=messaging.AndroidNotification(channel_id='railway_siren_v2', sound='iphone_alarm')
+                ),
+                tokens=tokens,
             )
-            notify_user(timeout_msg)
+            messaging.send_each_for_multicast(message)
+    except Exception as e:
+        print(f"Siren notification error: {e}")
+
+def monitor_loop(page):
+    print("\n🚀 MULTI-USER MONITORING ACTIVE")
+    refresh_start = time.time()
+    
+    while True:
+        # 1. GLOBAL TIMEOUT CHECK (6 Hours)
+        if (time.time() - SCRIPT_START_TIME) > MAX_RUNTIME_SECONDS:
+            print("\n⏰ 6-hour limit reached. Sending individual rerun links.")
+            active_jobs = get_active_watchers()
+            
+            if active_jobs:
+                # Group 1: Trigger sirens for everyone at once (generic text is fine for siren)
+                notify_specific_users(active_jobs, f"⏳ Monitor Timeout for {FROM_STATION} → {TO_STATION}. Check Telegram for rerun link.")
+                
+                # Group 2: Send UNIQUE Telegram links for each specific Job ID
+                for job in active_jobs:
+                    personal_rerun_msg = (
+                        f"⏳ Monitor Timeout (6 Hours)\n\n"
+                        f"The search for {FROM_STATION} → {TO_STATION} has reached the time limit.\n\n"
+                        f"To continue for another 6 hours, click your personal link below:\n"
+                        f"/rerun_{job['id']}"
+                    )
+                    send_telegram(job['chat_id'], personal_rerun_msg)
+            
             update_job_status("completed")
             return
-        
-        if STOP_REQUESTED:
-            print("\n🛑 Monitoring cancelled.")
 
-            update_job_status("cancelled")
-
-            return
-        if FOUND:
-            print("\n🛑 Desired ticket found. Monitoring stopped.")
+        # 2. Get fresh list of who we are watching for
+        current_watchers = get_active_watchers()
+        if not current_watchers:
+            print("\n🏁 No active jobs left for this route. Shutting down runner.")
             return
 
         try:
             data = get_seats_from_page(page)
-
-            for train, classes in data.items():
-                # --- NEW TRAIN FILTERING ---
-                if TARGET_TRAINS:
-                    # Check if any target train name is inside the actual train name (e.g., "PARABAT" in "PARABAT EXPRESS (709)")
-                    match_found = any(target in train for target in TARGET_TRAINS)
-                    if not match_found:
-                        continue
-
+            
+            for train_name, classes in data.items():
                 for class_name, count in classes.items():
-                    key = f"{train}|{class_name}"
-
-                    previous_count = previous_state.get(key, 0)
-
-                    # Notify when:
-                    # 0 -> available
-                    # OR
-                    # available count changes
                     if count > 0 and class_name in TARGET_CLASSES:
-                        print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
-                        message = build_ticket_message(train, class_name, count)
-                        notify_user(message)
-                        trigger_siren_alarm(message)
-                        print("Desired ticket found. Stopping monitoring.")
-                        FOUND = True
-                        supabase.table("monitoring_jobs").update({"status": "completed"}).match({
-                            "from_station": FROM_STATION,
-                            "to_station": TO_STATION,
-                            "journey_date": JOURNEY_DATE_INPUT,
-                            "seat_class": SEAT_CLASS_INPUT,
-                            "desired_trains": DESIRED_TRAINS_INPUT
-                        }).execute()
-                                            
-                    if count > 0 and count != previous_count and FOUND is False:
-                        print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
+                        
+                        # Identify which specific users want THIS train
+                        matched_jobs = []
+                        for job in current_watchers:
+                            pref = str(job.get('desired_trains', 'ALL')).upper()
+                            # Match if user chose ALL or if train name contains their preference
+                            if pref == "ALL" or any(t.strip() in train_name for t in pref.split('+')):
+                                matched_jobs.append(job)
 
-                        message = build_ticket_message(train, class_name, count)
-
-                        notify_user(message)
-                        trigger_siren_alarm(message)
-
-                    previous_state[key] = count
-                    
-
-            current_time = time.strftime("%H:%M:%S")
-
-            sys.stdout.write(
-                f"\r[🕒 {current_time}] Monitoring {len(data)} train(s)...   "
-            )
-
-            sys.stdout.flush()
-
-            # ------------------------------------------------
-            # HARD REFRESH
-            # ------------------------------------------------
-
+                        if matched_jobs:
+                            print(f"\n🎯 [MATCH] {train_name} for {len(matched_jobs)} users!")
+                            msg = build_ticket_message(train_name, class_name, count)
+                            
+                            # Notify only the matched users
+                            notify_specific_users(matched_jobs, msg)
+                            
+                            # Mark only their specific jobs as completed
+                            matched_ids = [j['id'] for j in matched_jobs]
+                            supabase.table("monitoring_jobs").update({"status": "completed"}).in_("id", matched_ids).execute()
+                            
+            # 4. Hard Refresh
             if time.time() - refresh_start >= HARD_REFRESH_SECONDS:
-                print("\n\n🔄 Reloading page...")
-
-                page.reload(wait_until="domcontentloaded", timeout=60000)
-
-                page.wait_for_timeout(5000)
-
+                page.reload(wait_until="domcontentloaded")
                 dismiss_disclaimer(page)
-
                 refresh_start = time.time()
 
-            # ------------------------------------------------
-            # JOURNEY DATE CHECK
-            # ------------------------------------------------
-
+            # 5. Date Check
             if datetime.now() > journey_datetime + timedelta(hours=9):
-                print("\n\n📅 Journey date has passed.")
-
-                print("🏁 Monitoring completed.")
-
                 update_job_status("completed")
-
                 return
 
             time.sleep(DYNAMIC_CHECK_SECONDS)
 
-        except KeyboardInterrupt:
-            print("\n🛑 Monitoring stopped.")
-
-            update_job_status("cancelled")
-
-            return
-
         except Exception as e:
-            print(f"\n⚠️ Monitoring error: {e}")
-
-            time.sleep(DYNAMIC_CHECK_SECONDS)
+            print(f"\n⚠️ Loop Error: {e}")
+            time.sleep(5)
 
 
 # ============================================================
