@@ -801,6 +801,12 @@ def process_search_message(chat_id, username, text):
             password=state.get("password"),
         )
 
+        markup = {
+                "keyboard": [[{"text": "✅ Confirm"}, {"text": "❌ Cancel"}]],
+                "resize_keyboard": True,
+                "one_time_keyboard": True,
+        }
+
         send_message(
             chat_id,
             "🔎 Confirm your search:\n\n"
@@ -809,14 +815,14 @@ def process_search_message(chat_id, username, text):
             f"Date: {state['journey_date']}\n"
             f"Class: {state['class_display']}\n"
             f"Trains: {display_trains}\n\n"
-            "Type YES to start or NO to cancel.",
-            reply_markup={"remove_keyboard": True},
+            "Type Confirm to start or Cancel to stop and return.",
+            reply_markup=markup,
         )
         return True
 
     # 8. CONFIRMATION
     if step == "confirmation":
-        if text.upper() in ("YES", "Y"):
+        if text.upper() in ("CONFIRM", "C"):
             job_id = str(uuid.uuid4())
             is_priv = state.get("is_private", False)
             existing_job_id = None
