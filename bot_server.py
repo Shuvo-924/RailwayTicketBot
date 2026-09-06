@@ -158,23 +158,24 @@ def main_menu():
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 
+
 def send_verification_email(email, code):
     if not BREVO_API_KEY:
         print("❌ ERROR: BREVO_API_KEY not found.")
         return False
 
     url = "https://api.brevo.com/v3/smtp/email"
-    
+
     headers = {
         "accept": "application/json",
         "content-type": "application/json",
-        "api-key": BREVO_API_KEY
+        "api-key": BREVO_API_KEY,
     }
-    
+
     payload = {
         "sender": {
             "name": "Railway Monitor",
-            "email": SMTP_EMAIL # This must be the email you signed up with on Brevo
+            "email": SMTP_EMAIL,  # This must be the email you signed up with on Brevo
         },
         "to": [{"email": email}],
         "subject": "Railway Monitor - Verification Code",
@@ -186,7 +187,7 @@ def send_verification_email(email, code):
                 <p>This code expires in 10 minutes.</p>
             </body>
         </html>
-        """
+        """,
     }
 
     try:
@@ -613,7 +614,10 @@ def clear_state(chat_id):
 def start_new_search(chat_id):
     user = get_verified_user(chat_id)
     if not user:
-        send_message(chat_id, "🔒 You need to verify your SUST student email first.\n\nUse /start to verify.")
+        send_message(
+            chat_id,
+            "🔒 You need to verify your SUST student email first.\n\nUse /start to verify.",
+        )
         return
 
     # Set state to search_mode first
@@ -621,25 +625,24 @@ def start_new_search(chat_id):
 
     # Create a keyboard for the mode selection
     markup = {
-        "keyboard": [
-            [{"text": "🤝 Shared Session"}, {"text": "🔐 Private Session"}]
-        ],
+        "keyboard": [[{"text": "🤝 Shared Session"}, {"text": "🔐 Private Session"}]],
         "resize_keyboard": True,
-        "one_time_keyboard": True
+        "one_time_keyboard": True,
     }
 
     send_message(
-        chat_id, 
+        chat_id,
         "🛡️ Choose Search Mode:\n\n"
         "🤝 Shared: Uses server account. (Subject to queue)\n"
         "🔐 Private: Uses your own Railway account. (Instant start)",
-        reply_markup=markup
+        reply_markup=markup,
     )
 
 
 # ============================================================
 # PROCESS SEARCH
 # ============================================================
+
 
 def process_search_message(chat_id, username, text):
     state = USER_STATES.get(chat_id)
@@ -655,7 +658,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 "🔐 Private Session Selected.\n\nPlease enter your Railway Mobile Number:",
-                reply_markup={"remove_keyboard": True}
+                reply_markup={"remove_keyboard": True},
             )
         else:
             queue_pos = get_queue_position()
@@ -663,7 +666,7 @@ def process_search_message(chat_id, username, text):
             send_message(
                 chat_id,
                 f"🤝 Shared Session Selected.\nThere are currently {queue_pos} searches in queue.\n\nEnter FROM station:",
-                reply_markup={"remove_keyboard": True}
+                reply_markup={"remove_keyboard": True},
             )
         return True
 
@@ -689,18 +692,32 @@ def process_search_message(chat_id, username, text):
 
     # 3. FROM
     if step == "from_station":
-        set_state(chat_id, "to_station", from_station=text, is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password"))
+        set_state(
+            chat_id,
+            "to_station",
+            from_station=text,
+            is_private=state.get("is_private"),
+            phone=state.get("phone"),
+            password=state.get("password"),
+        )
         send_message(chat_id, "📍 Enter your TO station.\n\nExample:\nChattogram")
         return True
 
     # 4. TO
     if step == "to_station":
         set_state(
-            chat_id, "journey_date", 
-            from_station=state["from_station"], to_station=text,
-            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
+            chat_id,
+            "journey_date",
+            from_station=state["from_station"],
+            to_station=text,
+            is_private=state.get("is_private"),
+            phone=state.get("phone"),
+            password=state.get("password"),
         )
-        send_message(chat_id, "📅 Enter journey date.\n\nFormat:\nYYYY-MM-DD\n\nExample:\n2026-09-20")
+        send_message(
+            chat_id,
+            "📅 Enter journey date.\n\nFormat:\nYYYY-MM-DD\n\nExample:\n2026-09-20",
+        )
         return True
 
     # 5. DATE
@@ -710,12 +727,19 @@ def process_search_message(chat_id, username, text):
             return True
 
         set_state(
-            chat_id, "seat_class",
-            from_station=state["from_station"], to_station=state["to_station"],
-            journey_date=text, is_private=state.get("is_private"), 
-            phone=state.get("phone"), password=state.get("password")
+            chat_id,
+            "seat_class",
+            from_station=state["from_station"],
+            to_station=state["to_station"],
+            journey_date=text,
+            is_private=state.get("is_private"),
+            phone=state.get("phone"),
+            password=state.get("password"),
         )
-        send_message(chat_id, "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov\n(e.g. Snigdha + S_Chair):")
+        send_message(
+            chat_id,
+            "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov\n(e.g. Snigdha + S_Chair):",
+        )
         return True
 
     # 6. CLASS -> Move to TRAIN selection
@@ -727,40 +751,54 @@ def process_search_message(chat_id, username, text):
 
         selected_classes, class_regex = parsed
         set_state(
-            chat_id, "desired_trains",
-            from_station=state["from_station"], to_station=state["to_station"],
-            journey_date=state["journey_date"], seat_class=class_regex,
+            chat_id,
+            "desired_trains",
+            from_station=state["from_station"],
+            to_station=state["to_station"],
+            journey_date=state["journey_date"],
+            seat_class=class_regex,
             class_display=" + ".join(selected_classes),
-            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
+            is_private=state.get("is_private"),
+            phone=state.get("phone"),
+            password=state.get("password"),
         )
 
         markup = {
             "keyboard": [[{"text": "All Trains"}]],
             "resize_keyboard": True,
-            "one_time_keyboard": True
+            "one_time_keyboard": True,
         }
         send_message(
             chat_id,
             "🚆 Which trains do you want to monitor?\n\n"
             "(e.g. Parabat + Upavan)\n"
             "Or click 'All Trains'.",
-            reply_markup=markup
+            reply_markup=markup,
         )
         return True
 
     # 7. TRAINS -> Move to CONFIRMATION
     if step == "desired_trains":
         trains_text = text.strip()
-        display_trains = "All Trains" if trains_text.upper() == "ALL TRAINS" else trains_text
+        display_trains = (
+            "All Trains" if trains_text.upper() == "ALL TRAINS" else trains_text
+        )
 
         set_state(
-            chat_id, "confirmation",
-            from_station=state["from_station"], to_station=state["to_station"],
-            journey_date=state["journey_date"], seat_class=state["seat_class"],
+            chat_id,
+            "confirmation",
+            from_station=state["from_station"],
+            to_station=state["to_station"],
+            journey_date=state["journey_date"],
+            seat_class=state["seat_class"],
             class_display=state["class_display"],
-            desired_trains=trains_text if trains_text.upper() != "ALL TRAINS" else "ALL",
+            desired_trains=trains_text
+            if trains_text.upper() != "ALL TRAINS"
+            else "ALL",
             display_trains=display_trains,
-            is_private=state.get("is_private"), phone=state.get("phone"), password=state.get("password")
+            is_private=state.get("is_private"),
+            phone=state.get("phone"),
+            password=state.get("password"),
         )
 
         send_message(
@@ -772,7 +810,7 @@ def process_search_message(chat_id, username, text):
             f"Class: {state['class_display']}\n"
             f"Trains: {display_trains}\n\n"
             "Type YES to start or NO to cancel.",
-            reply_markup={"remove_keyboard": True}
+            reply_markup={"remove_keyboard": True},
         )
         return True
 
@@ -781,36 +819,101 @@ def process_search_message(chat_id, username, text):
         if text.upper() in ("YES", "Y"):
             job_id = str(uuid.uuid4())
             is_priv = state.get("is_private", False)
+            existing_job_id = None
+            try:
+                # Check if an identical SHARED job is already running
+                check = (
+                    supabase.table("monitoring_jobs")
+                    .select("id")
+                    .match(
+                        {
+                            "from_station": state["from_station"],
+                            "to_station": state["to_station"],
+                            "journey_date": state["journey_date"],
+                            "seat_class": state["seat_class"],
+                            "desired_trains": state.get("desired_trains", "ALL"),
+                            "status": "running",
+                        }
+                    )
+                    .execute()
+                )
+
+                if check.data:
+                    existing_job_id = check.data[0]["id"]
+            except Exception as e:
+                print(f"Check existing job error: {e}")
+
+            # If an identical job exists, just join it
+            if existing_job_id:
+                supabase.table("monitoring_jobs").insert(
+                    {
+                        "id": str(uuid.uuid4()),  # New unique ID for this user's record
+                        "chat_id": chat_id,
+                        "username": username,
+                        "from_station": state["from_station"],
+                        "to_station": state["to_station"],
+                        "journey_date": state["journey_date"],
+                        "seat_class": state["seat_class"],
+                        "desired_trains": state.get("desired_trains", "ALL"),
+                        "is_private": is_priv,
+                        "status": "running",  # Join immediately
+                    }
+                ).execute()
+
+                send_message(
+                    chat_id,
+                    "🤝 Matching Monitor Found!\n\n"
+                    "Someone else is already monitoring this exact route. "
+                    "I've added you to the notification list for the existing cloud engine.\n\n"
+                    "✅ You will receive an alert the moment tickets are found!",
+                    reply_markup=main_menu(),
+                )
+                clear_state(chat_id)
+                return True
+
+            # If no existing job, proceed with normal dispatch...
+            job_id = str(uuid.uuid4())
 
             # Insert Job
-            supabase.table("monitoring_jobs").insert({
-                "id": job_id,
-                "chat_id": chat_id,
-                "username": username,
-                "from_station": state["from_station"],
-                "to_station": state["to_station"],
-                "journey_date": state["journey_date"],
-                "seat_class": state["seat_class"],
-                "is_private": is_priv,
-                "status": "starting",
-            }).execute()
+            supabase.table("monitoring_jobs").insert(
+                {
+                    "id": job_id,
+                    "chat_id": chat_id,
+                    "username": username,
+                    "from_station": state["from_station"],
+                    "to_station": state["to_station"],
+                    "journey_date": state["journey_date"],
+                    "seat_class": state["seat_class"],
+                    "desired_trains": state.get("desired_trains", "ALL"),
+                    "is_private": is_priv,
+                    "status": "starting",
+                }
+            ).execute()
 
             phone = state.get("phone", os.getenv("RAILWAY_PHONE"))
             password = state.get("password", os.getenv("RAILWAY_PASSWORD"))
 
-            send_message(chat_id, f"🚀 Dispatching {'Private' if is_priv else 'Shared'} job...")
+            send_message(
+                chat_id, f"🚀 Dispatching {'Private' if is_priv else 'Shared'} job..."
+            )
 
             dispatched = dispatch_github_workflow(
-                job_id, chat_id, username,
-                state["from_station"], state["to_station"],
-                state["journey_date"], state["seat_class"],
-                phone, password, state.get("desired_trains", "ALL")
+                job_id,
+                chat_id,
+                username,
+                state["from_station"],
+                state["to_station"],
+                state["journey_date"],
+                state["seat_class"],
+                phone,
+                password,
+                state.get("desired_trains", "ALL"),
             )
 
             if dispatched:
                 if is_priv:
                     send_message(chat_id, "🔒 Credentials purged from database.")
-                
+
                 send_message(
                     chat_id,
                     "✅ Monitor started!\n\n"
@@ -819,11 +922,15 @@ def process_search_message(chat_id, username, text):
                     f"📅 {state['journey_date']}\n"
                     f"💺 {state['class_display']}\n"
                     f"🚂 {state['display_trains']}",
-                    reply_markup=main_menu()
+                    reply_markup=main_menu(),
                 )
             else:
-                supabase.table("monitoring_jobs").update({"status": "failed"}).eq("id", job_id).execute()
-                send_message(chat_id, "❌ GitHub Dispatch Failed.", reply_markup=main_menu())
+                supabase.table("monitoring_jobs").update({"status": "failed"}).eq(
+                    "id", job_id
+                ).execute()
+                send_message(
+                    chat_id, "❌ GitHub Dispatch Failed.", reply_markup=main_menu()
+                )
 
             clear_state(chat_id)
             return True
@@ -834,6 +941,7 @@ def process_search_message(chat_id, username, text):
             return True
 
     return False
+
 
 # ============================================================
 # COMMANDS
@@ -1023,15 +1131,13 @@ def cancel_my_searches(chat_id):
 
 
 def show_status(chat_id):
-
     user = get_verified_user(chat_id)
-
     if not user:
-        send_message(
-            chat_id, "🔒 Not verified.\n\nUse /start to verify your SUST email."
-        )
-
+        send_message(chat_id, "🔒 Not verified.\n\nUse /start to verify your SUST email.")
         return
+
+    # Check if FCM Token (Alarm App) is linked
+    alarm_status = "✅ Active" if user.get("fcm_token") else "❌ Not Linked (Install the Alarm App)"
 
     try:
         result = (
@@ -1041,16 +1147,18 @@ def show_status(chat_id):
             .in_("status", ["starting", "queued", "running"])
             .execute()
         )
-
         active = len(result.data)
 
         send_message(
             chat_id,
-            f"📊 Your status\n\n🎓 SUST email: verified\n🚆 Active searches: {active}",
+            f"📊 Your STATUS\n\n"
+            f"🎓 SUST Email: Verified\n"
+            f"🚨 Mobile Alarm: {alarm_status}\n"
+            f"🚆 Active searches: {active}\n"
+            f"🆔 Your Chat ID: `{chat_id}` (Use this in the App)"
         )
-
     except Exception:
-        send_message(chat_id, "🎓 Your SUST email is verified.")
+        send_message(chat_id, f"🎓 Your SUST email is verified.\n🚨 Mobile Alarm: {alarm_status}")
 
 
 # ============================================================
@@ -1069,6 +1177,8 @@ def show_help(chat_id):
         "/cancel — Cancel active searches\n"
         "/status — Show your status\n"
         "/help — Show this message\n\n"
+        "📢 LOUD ALERT App\n"
+        "To receive an Alarm like notification when tickets are found, Install our Android app and enter your Chat ID: " + str(chat_id) + "\n\n"
         "Class examples:\n"
         "Snigdha\n"
         "S_Chair\n"
@@ -1301,45 +1411,61 @@ def telegram_listener():
                 # ====================================================
                 if text.startswith("/rerun_"):
                     old_job_id = text.replace("/rerun_", "").strip()
-                    
+
                     try:
                         # 1. Fetch old job details from Supabase
-                        res = supabase.table("monitoring_jobs").select("*").eq("id", old_job_id).execute()
-                        
+                        res = (
+                            supabase.table("monitoring_jobs")
+                            .select("*")
+                            .eq("id", old_job_id)
+                            .execute()
+                        )
+
                         if not res.data:
-                            send_message(chat_id, "❌ Could not find the original search details.")
+                            send_message(
+                                chat_id,
+                                "❌ Could not find the original search details.",
+                            )
                             continue
-                        
+
                         job_data = res.data[0]
-                        
+
                         # 2. Generate a fresh Job ID
                         new_job_id = str(uuid.uuid4())
-                        
+
                         # 3. Create new entry in Supabase
-                        supabase.table("monitoring_jobs").insert({
-                            "id": new_job_id,
-                            "chat_id": chat_id,
-                            "username": username,
-                            "from_station": job_data["from_station"],
-                            "to_station": job_data["to_station"],
-                            "journey_date": job_data["journey_date"],
-                            "seat_class": job_data["seat_class"],
-                            "is_private": job_data.get("is_private", False),
-                            "status": "starting",
-                        }).execute()
+                        supabase.table("monitoring_jobs").insert(
+                            {
+                                "id": new_job_id,
+                                "chat_id": chat_id,
+                                "username": username,
+                                "from_station": job_data["from_station"],
+                                "to_station": job_data["to_station"],
+                                "journey_date": job_data["journey_date"],
+                                "seat_class": job_data["seat_class"],
+                                "is_private": job_data.get("is_private", False),
+                                "status": "starting",
+                            }
+                        ).execute()
 
                         # 4. Get credentials (Admin or Private)
-                        # Note: We can't recover the private password (purged), 
+                        # Note: We can't recover the private password (purged),
                         # so rerun only works for Shared or if Admin pass is set.
                         phone = os.getenv("RAILWAY_PHONE")
                         password = os.getenv("RAILWAY_PASSWORD")
 
                         # 5. Dispatch
                         dispatched = dispatch_github_workflow(
-                            new_job_id, chat_id, username,
-                            job_data["from_station"], job_data["to_station"],
-                            job_data["journey_date"], job_data["seat_class"],
-                            phone, password, job_data.get("desired_trains", "ALL")
+                            new_job_id,
+                            chat_id,
+                            username,
+                            job_data["from_station"],
+                            job_data["to_station"],
+                            job_data["journey_date"],
+                            job_data["seat_class"],
+                            phone,
+                            password,
+                            job_data.get("desired_trains", "ALL"),
                         )
 
                         if dispatched:
@@ -1347,7 +1473,7 @@ def telegram_listener():
                                 chat_id,
                                 "🔄Monitor Restarted!\n\n"
                                 f"Your search for {job_data['from_station']} has been renewed for another 6 hours.\n"
-                                f"New Job ID: `{new_job_id}`"
+                                f"New Job ID: `{new_job_id}`",
                             )
                         else:
                             send_message(chat_id, "❌ Failed to trigger the rerun.")
@@ -1355,9 +1481,9 @@ def telegram_listener():
                     except Exception as e:
                         print(f"Rerun error: {e}")
                         send_message(chat_id, "❌ An error occurred during rerun.")
-                    
+
                     continue
-                
+
                 # ====================================================
                 # DEFAULT
                 # ====================================================
@@ -1369,7 +1495,7 @@ def telegram_listener():
                 )
         except KeyboardInterrupt:
             print("Telegram listener stopped by user.")
-            break        
+            break
 
         except Exception as e:
             print(f"Telegram listener error: {e}")
@@ -1383,9 +1509,9 @@ def telegram_listener():
 
 if __name__ == "__main__":
     t = threading.Thread(target=run_health_server)
-    t.daemon = False 
+    t.daemon = False
     t.start()
     print("✅ Health Server started in background...")
-    time.sleep(5) 
+    time.sleep(5)
 
     telegram_listener()

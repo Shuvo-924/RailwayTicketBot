@@ -10,9 +10,50 @@ import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from seleniumbase import SB
-from seleniumbase import BaseCase
 from supabase import create_client
 from datetime import datetime,timedelta
+import firebase_admin
+from firebase_admin import credentials, messaging
+import json
+
+# Initialize Firebase (only once)
+if not firebase_admin._apps:
+    fb_secret = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+    cred = credentials.Certificate(json.loads(fb_secret))
+    firebase_admin.initialize_app(cred)
+
+def trigger_siren_alarm(message_body):
+    # 1. Get tokens of ALL users watching this journey
+    res = supabase.table("monitoring_jobs").select("subscribers(fcm_token)").match({
+        "from_station": FROM_STATION,
+        "to_station": TO_STATION,
+        "journey_date": JOURNEY_DATE_INPUT,
+        "status": "running"
+    }).execute()
+
+    tokens = [r['subscribers']['fcm_token'] for r in res.data if r['subscribers'].get('fcm_token')]
+
+    if not tokens:
+        return
+
+    # 2. Send the "Siren" Packet
+    message = messaging.MulticastMessage(
+        notification=messaging.Notification(
+            title="🚨 TICKET FOUND! 🚨",
+            body=message_body,
+        ),
+        android=messaging.AndroidConfig(
+            priority='high',
+            notification=messaging.AndroidNotification(
+                channel_id='railway_alarm_high', # MATCHES FLUTTER ID
+                sound='iphone_alarm', # MATCHES siren.mp3
+            ),
+        ),
+        tokens=tokens,
+    )
+    
+    response = messaging.send_multicast(message)
+    print(f"Alarms triggered: {response.success_count}")
 
 # Required to bridge the gap between SeleniumBase's internals and Playwright
 nest_asyncio.apply()
@@ -341,11 +382,28 @@ def notify_user(message):
     Send notification to the owner of this monitoring job.
     """
 
-    if CHAT_ID:
-        return send_telegram(CHAT_ID, message)
+    try:
+        # Query for all running jobs with the same parameters
+        res = supabase.table("monitoring_jobs").select("chat_id").match({
+            "from_station": FROM_STATION,
+            "to_station": TO_STATION,
+            "journey_date": JOURNEY_DATE_INPUT,
+            "seat_class": SEAT_CLASS_INPUT,
+            "desired_trains": DESIRED_TRAINS_INPUT,
+            "status": "running"
+        }).execute()
 
-    print("⚠️ CHAT_ID unavailable. Notification not sent.")
-    return False
+        if res.data:
+            # Create a unique set of chat IDs to avoid duplicate messages to one person
+            chat_ids = {str(row["chat_id"]) for row in res.data}
+            print(f"📣 Notifying {len(chat_ids)} users...")
+            for cid in chat_ids:
+                send_telegram(cid, message)
+            return True
+    except Exception as e:
+        print(f"⚠️ Multi-notify error: {e}")
+        # Fallback to the original CHAT_ID if DB query fails
+        return send_telegram(CHAT_ID, message)
 
 
 def broadcast_to_all(message):
@@ -468,8 +526,8 @@ def get_seats_from_page(page):
                     class_results[c_name] = int(match.group()) if match else 0
             if class_results:
                 results[train_name] = class_results
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Error parsing seat availability. Retrying... {e}")
     return results
 
 
@@ -533,7 +591,7 @@ def monitor_loop(page):
         if elapsed_time > MAX_RUNTIME_SECONDS:
             print("\n⏰ 6-hour limit approaching. Notifying user and terminating.")
 
-        rerun_command = f"/rerun_{JOB_ID}"
+            rerun_command = f"/rerun_{JOB_ID}"
             timeout_msg = (
                 "⏳Monitor Timeout (6 Hours)\n\n"
                 f"The search for {FROM_STATION} → {TO_STATION} has reached the cloud time limit.\n\n"
@@ -552,9 +610,6 @@ def monitor_loop(page):
             return
         if FOUND:
             print("\n🛑 Desired ticket found. Monitoring stopped.")
-
-            update_job_status("completed")
-
             return
 
         try:
@@ -569,7 +624,6 @@ def monitor_loop(page):
                         continue
 
                 for class_name, count in classes.items():
-                    # ... rest of your existing notification logic ...
                     key = f"{train}|{class_name}"
 
                     previous_count = previous_state.get(key, 0)
@@ -584,7 +638,13 @@ def monitor_loop(page):
                         notify_user(message)
                         print("Desired ticket found. Stopping monitoring.")
                         FOUND = True
-                        update_job_status("completed")
+                        supabase.table("monitoring_jobs").update({"status": "completed"}).match({
+                            "from_station": FROM_STATION,
+                            "to_station": TO_STATION,
+                            "journey_date": JOURNEY_DATE_INPUT,
+                            "seat_class": SEAT_CLASS_INPUT,
+                            "desired_trains": DESIRED_TRAINS_INPUT
+                        }).execute()
                                             
                     if count > 0 and count != previous_count and FOUND is False:
                         print(f"\n🚨 [FOUND] {train} - {class_name}: {count} seats")
