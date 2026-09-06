@@ -1271,10 +1271,10 @@ def telegram_listener():
 
     while True:
         try:
+            # Shorten timeout slightly to prevent hanging
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-
             response = requests.get(
-                url, params={"offset": offset, "timeout": 20}, timeout=25
+                url, params={"offset": offset, "timeout": 15}, timeout=20
             )
 
             data = response.json()
@@ -1499,8 +1499,7 @@ def telegram_listener():
 
         except Exception as e:
             print(f"Telegram listener error: {e}")
-
-            time.sleep(20)
+            time.sleep(5)
 
 
 # ============================================================
