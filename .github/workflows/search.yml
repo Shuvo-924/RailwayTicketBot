@@ -68,6 +68,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           RAILWAY_PHONE: ${{ github.event.inputs.user_phone || secrets.RAILWAY_PHONE }}
           RAILWAY_PASSWORD: ${{ github.event.inputs.user_pass || secrets.RAILWAY_PASSWORD }}
           DESIRED_TRAINS: ${{ github.event.inputs.desired_trains }}

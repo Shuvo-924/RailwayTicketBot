@@ -45,7 +45,7 @@ def trigger_siren_alarm(message_body):
         android=messaging.AndroidConfig(
             priority='high',
             notification=messaging.AndroidNotification(
-                channel_id='railway_alarm_high', # MATCHES FLUTTER ID
+                channel_id='railway_alarm_v2', # MATCHES FLUTTER ID
                 sound='iphone_alarm', # MATCHES siren.mp3
             ),
         ),
