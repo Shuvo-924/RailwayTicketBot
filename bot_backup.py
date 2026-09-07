@@ -615,18 +615,20 @@ def notify_specific_users(jobs, message_text):
     
     # 2. Trigger Mobile Siren (Multicast to all tokens)
     try:
-        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
-        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
-        if tokens:
-            message = messaging.MulticastMessage(
-                notification=messaging.Notification(title="🚨 TICKET FOUND!", body=message_text),
-                android=messaging.AndroidConfig(
-                    priority='high',
-                    notification=messaging.AndroidNotification(channel_id='railway_siren_v2', sound='iphone_alarm')
-                ),
-                tokens=tokens,
-            )
-            messaging.send_each_for_multicast(message)
+      user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
+      tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
+      if tokens:
+        message = messaging.MulticastMessage(
+            data={
+                "title": "🚨 TICKET FOUND!",
+                "body": message_text,
+            },
+            android=messaging.AndroidConfig(
+                priority='high',
+            ),
+            tokens=tokens,
+        )
+        messaging.send_each_for_multicast(message)
     except Exception as e:
         print(f"Siren notification error: {e}")
 
