@@ -619,27 +619,36 @@ def notify_specific_users(jobs, message_text):
       user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
       tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
       if tokens:
-        message = messaging.MulticastMessage(
-            notification=messaging.Notification(
-                title="🚨 TICKET ALERT!",
-                body="A ticket was found! Open the app to stop the siren.",
-            ),
-            data={
-                "click_action": "FLUTTER_NOTIFICATION_CLICK",
-                "trigger": "start_alarm", # This tells Flutter what to do
-            },
-            android=messaging.AndroidConfig(
-                priority='high',
-                notification=messaging.AndroidNotification(
-                    channel_id='railway_alarm_v2',
-                    sound='iphone_alarm',
-                    sticky=True,
-                ),
-            ),
-            tokens=tokens,
-        )
-        response = messaging.send_each_for_multicast(message)
-        print(f"✅ Firebase Signal Sent: {response.success_count} success")
+        messages = []
+        for token in tokens:
+            messages.append(
+                messaging.Message(
+                    token=token,
+                    # Hybrid Payload: Notification to wake system, Data to wake Flutter
+                    notification=messaging.Notification(
+                        title="🚨 TICKET FOUND!",
+                        body="Open the app to stop the siren!",
+                    ),
+                    data={
+                        "trigger": "start_alarm", # This matches your Flutter logic
+                        "body": message_text
+                    },
+                    android=messaging.AndroidConfig(
+                        priority='high',
+                        notification=messaging.AndroidNotification(
+                            channel_id='railway_alarm_v2', # MATCHES Flutter/Manifest
+                            sound='iphone_alarm',
+                            sticky=True,
+                        ),
+                    ),
+                )
+            )
+
+        # 4. Send the batch
+        # send_each replaces send_multicast and send_all in newer SDKs
+        response = messaging.send_each(messages)
+        
+        print(f"✅ Batch complete: {response.success_count} successful alarms.")
     except Exception as e:
         print(f"❌ Siren Trigger Error: {e}")
 
