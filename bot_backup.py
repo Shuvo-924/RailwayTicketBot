@@ -652,9 +652,43 @@ def notify_specific_users(jobs, message_text):
     except Exception as e:
         print(f"❌ Siren Trigger Error: {e}")
 
+def trigger_mobile_siren(jobs, message_text):
+    """Triggers ONLY the Mobile Alarm/Siren (FCM) for the provided jobs."""
+    chat_ids = list(set([str(j['chat_id']) for j in jobs]))
+    try:
+        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
+        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
+        
+        if tokens:
+            messages = [
+                messaging.Message(
+                    token=token,
+                    notification=messaging.Notification(
+                        title="🚨 TICKET FOUND!",
+                        body="Tap the Stop button to dismiss the alarm!",
+                    ),
+                    data={"trigger": "start_alarm", "body": message_text},
+                    android=messaging.AndroidConfig(
+                        priority='high',
+                        notification=messaging.AndroidNotification(
+                            channel_id='railway_alarm_v2',
+                            sound='iphone_alarm',
+                            sticky=True,
+                        ),
+                    ),
+                ) for token in tokens
+            ]
+            messaging.send_each(messages)
+            print(f"✅ One-time Siren triggered for {len(tokens)} devices.")
+    except Exception as e:
+        print(f"❌ Mobile Siren Error: {e}")
+
 def monitor_loop(page):
     print("\n🚀 MULTI-USER MONITORING ACTIVE")
     refresh_start = time.time()
+    
+    # [NEW] Track which Job IDs have already had their siren triggered in this session
+    siren_triggered_jobs = set()
     
     while True:
         # 1. GLOBAL TIMEOUT CHECK (6 Hours)
@@ -694,18 +728,30 @@ def monitor_loop(page):
                         
                         # Identify which specific users want THIS train
                         matched_jobs = []
+                        jobs_needing_siren = [] # [NEW] specifically for the one-time siren
+
                         for job in current_watchers:
                             pref = str(job.get('desired_trains', 'ALL')).upper()
                             # Match if user chose ALL or if train name contains their preference
                             if pref == "ALL" or any(t.strip() in train_name for t in pref.split('+')):
                                 matched_jobs.append(job)
+                                
+                                # [NEW] If this job hasn't had a siren yet, mark it for siren
+                                if job['id'] not in siren_triggered_jobs:
+                                    jobs_needing_siren.append(job)
+                                    siren_triggered_jobs.add(job['id'])
 
                         if matched_jobs:
                             print(f"\n🎯 [MATCH] {train_name} for {len(matched_jobs)} users!")
                             msg = build_ticket_message(train_name, class_name, count)
                             
-                            # Notify only the matched users
-                            notify_specific_users(matched_jobs, msg)
+                            # [MODIFIED] 1. Send Telegram for every match
+                            for j in matched_jobs:
+                                send_telegram(j['chat_id'], msg)
+                            
+                            # [MODIFIED] 2. Trigger Mobile Siren ONLY for jobs that haven't alerted yet
+                            if jobs_needing_siren:
+                                trigger_mobile_siren(jobs_needing_siren, msg)
                             
                             # Mark only their specific jobs as completed
                             matched_ids = [j['id'] for j in matched_jobs]
