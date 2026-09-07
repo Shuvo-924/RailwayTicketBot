@@ -1,3 +1,4 @@
+from email.mime import message
 import os
 import re
 import sys
@@ -619,18 +620,28 @@ def notify_specific_users(jobs, message_text):
       tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
       if tokens:
         message = messaging.MulticastMessage(
+            notification=messaging.Notification(
+                title="🚨 TICKET ALERT!",
+                body="A ticket was found! Open the app to stop the siren.",
+            ),
             data={
-                "title": "🚨 TICKET FOUND!",
-                "body": message_text,
+                "click_action": "FLUTTER_NOTIFICATION_CLICK",
+                "trigger": "start_alarm", # This tells Flutter what to do
             },
             android=messaging.AndroidConfig(
                 priority='high',
+                notification=messaging.AndroidNotification(
+                    channel_id='railway_alarm_v2',
+                    sound='iphone_alarm',
+                    sticky=True,
+                ),
             ),
             tokens=tokens,
         )
-        messaging.send_each_for_multicast(message)
+        response = messaging.send_each_for_multicast(message)
+        print(f"✅ Firebase Signal Sent: {response.success_count} success")
     except Exception as e:
-        print(f"Siren notification error: {e}")
+        print(f"❌ Siren Trigger Error: {e}")
 
 def monitor_loop(page):
     print("\n🚀 MULTI-USER MONITORING ACTIVE")
