@@ -22,6 +22,11 @@ load_dotenv()
 # CONFIG
 # ============================================================
 
+BOLD = "\033[1m"
+ITALIC = "\033[3m"
+UNDERLINE = "\033[4m"
+END = "\033[0m"
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -449,20 +454,39 @@ def get_queue_position():
 # ============================================================
 # DATE VALIDATION
 # ============================================================
+formats = [
+    "%d-%m",
+    "%d/%m",
+    "%d %m",
+]
+
+
+def parse_date(date_text):
+    text = date_text.strip()
+    today = datetime.now().date()
+
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(text, fmt).date()
+            date = parsed.replace(year=today.year)
+            if date < today:
+                date = date.replace(year=today.year + 1)
+            return date
+        except ValueError:
+            continue
+
+    return None
 
 
 def validate_date(date_text):
-
-    try:
-        date = datetime.strptime(date_text, "%Y-%m-%d")
-
-        if date.date() < datetime.now().date():
-            return False
-
-        return True
-
-    except ValueError:
+    date = parse_date(date_text)
+    if date is None:
         return False
+
+    today = datetime.now().date()
+    latest = today + timedelta(days=10)
+
+    return today <= date <= latest
 
 
 # ============================================================
@@ -638,6 +662,7 @@ def start_new_search(chat_id):
         reply_markup=markup,
     )
 
+
 def cleanup_old_jobs(chat_id):
     """Ensures the user only has the 10 most recent searches in the database."""
     try:
@@ -649,22 +674,24 @@ def cleanup_old_jobs(chat_id):
             .order("created_at", desc=True)
             .execute()
         )
-        
+
         if res.data and len(res.data) > 10:
             # 2. Identify IDs that are outside the top 10
             # res.data[10:] contains all items from index 10 onwards
             ids_to_delete = [item["id"] for item in res.data[10:]]
-            
+
             # 3. Delete them from Supabase
-            supabase.table("monitoring_jobs") \
-                .delete() \
-                .in_("id", ids_to_delete) \
-                .execute()
-            
-            print(f"🧹 Cleanup: Removed {len(ids_to_delete)} old jobs for user {chat_id}")
-            
+            supabase.table("monitoring_jobs").delete().in_(
+                "id", ids_to_delete
+            ).execute()
+
+            print(
+                f"🧹 Cleanup: Removed {len(ids_to_delete)} old jobs for user {chat_id}"
+            )
+
     except Exception as e:
         print(f"⚠️ Cleanup error: {e}")
+
 
 # ============================================================
 # PROCESS SEARCH
@@ -743,29 +770,50 @@ def process_search_message(chat_id, username, text):
         )
         send_message(
             chat_id,
-            "📅 Enter journey date.\n\nFormat:\nYYYY-MM-DD\n\nExample:\n2026-09-20",
+            "📅 Enter journey date.\n\nFormat:\nMM-DD\n\nExample:\n9-20",
         )
         return True
 
     # 5. DATE
     if step == "journey_date":
         if not validate_date(text):
-            send_message(chat_id, "❌ Invalid date. Use YYYY-MM-DD.")
+            send_message(
+                chat_id,
+                "❌ Invalid date.\n"
+                "Enter a date from today up to 10 days later.\n\n"
+                "Examples: 8-9, 08/09, 8 9",
+            )
             return True
+
+        # Normalize to YYYY-MM-DD before saving
+        journey_date = parse_date(text).strftime("%Y-%m-%d")
 
         set_state(
             chat_id,
             "seat_class",
             from_station=state["from_station"],
             to_station=state["to_station"],
-            journey_date=text,
+            journey_date=journey_date,
             is_private=state.get("is_private"),
             phone=state.get("phone"),
             password=state.get("password"),
         )
+
         send_message(
             chat_id,
-            "💺 Enter class👇\nSnigdha\nS_Chair\nAC_S\nAC_B\nF_Seat\nF_Chair\nF_Berth\nAC_Chair\nShovan\nShulov\n(e.g. Snigdha + S_Chair):",
+            f"💺 Enter class👇\n"
+            f"{BOLD}Snigdha{END}\n"
+            f"{BOLD}S_Chair{END}\n"
+            f"{BOLD}AC_S{END}\n"
+            f"{BOLD}AC_B{END}\n"
+            f"{BOLD}F_Seat{END}\n"
+            f"{BOLD}F_Chair{END}\n"
+            f"{BOLD}F_Berth{END}\n"
+            f"{BOLD}AC_Chair{END}\n"
+            f"{BOLD}Shovan{END}\n"
+            f"{BOLD}Shulov{END}\n\n"
+            f"e.g. {UNDERLINE}AC_S{END}, "
+            f"{UNDERLINE}Snigdha + S_Chair{END}",
         )
         return True
 
@@ -797,9 +845,9 @@ def process_search_message(chat_id, username, text):
         }
         send_message(
             chat_id,
-            "🚆 Which trains do you want to monitor?\n\n"
-            "(e.g. Parabat + Upavan)\n"
-            "Or click 'All Trains'.",
+            f"🚆 Which {ITALIC}Trains{END} do you want to monitor?\n\n"
+            f"Type something like {UNDERLINE}Kalni, Parabat + Upavan{END} etc.\n"
+            f"Or click 'All Trains'.",
             reply_markup=markup,
         )
         return True
@@ -829,9 +877,9 @@ def process_search_message(chat_id, username, text):
         )
 
         markup = {
-                "keyboard": [[{"text": "✅ Confirm"}, {"text": "❌ Cancel"}]],
-                "resize_keyboard": True,
-                "one_time_keyboard": True,
+            "keyboard": [[{"text": "✅ Confirm"}, {"text": "❌ Cancel"}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
         }
 
         send_message(
@@ -952,7 +1000,7 @@ def process_search_message(chat_id, username, text):
                 send_message(
                     chat_id,
                     "✅ Monitor started!\n\n"
-                    f"Job ID: `{job_id}`\n"
+                    f"Job ID: {job_id}\n"
                     f"🚆 {state['from_station']} → {state['to_station']}\n"
                     f"📅 {state['journey_date']}\n"
                     f"💺 {state['class_display']}\n"
@@ -977,12 +1025,18 @@ def process_search_message(chat_id, username, text):
 
     if step == "rerun_mode":
         if "Private" in text:
-            set_state(chat_id, "rerun_phone", **state) # Carry over search data
-            send_message(chat_id, "🔐 Enter your Railway Mobile Number:", reply_markup={"remove_keyboard": True})
+            set_state(chat_id, "rerun_phone", **state)  # Carry over search data
+            send_message(
+                chat_id,
+                "🔐 Enter your Railway Mobile Number:",
+                reply_markup={"remove_keyboard": True},
+            )
         else:
             # Re-use the existing confirmation logic to check for merging
             set_state(chat_id, "confirmation", is_private=False, **state)
-            process_search_message(chat_id, username, "Confirm") # Auto-trigger "YES" logic
+            process_search_message(
+                chat_id, username, "Confirm"
+            )  # Auto-trigger "YES" logic
         return True
 
     if step == "rerun_phone":
@@ -998,7 +1052,7 @@ def process_search_message(chat_id, username, text):
         # Manually trigger the "YES" confirmation logic
         process_search_message(chat_id, username, "Confirm")
         return True
-    
+
     return False
 
 
@@ -1192,11 +1246,17 @@ def cancel_my_searches(chat_id):
 def show_status(chat_id):
     user = get_verified_user(chat_id)
     if not user:
-        send_message(chat_id, "🔒 Not verified.\n\nUse /start to verify your SUST email.")
+        send_message(
+            chat_id, "🔒 Not verified.\n\nUse /start to verify your SUST email."
+        )
         return
 
     # Check if FCM Token (Alarm App) is linked
-    alarm_status = "✅ Active" if user.get("fcm_token") else "❌ Not Linked (Install the Alarm App)"
+    alarm_status = (
+        "✅ Active"
+        if user.get("fcm_token")
+        else "❌ Not Linked (Install the Alarm App)"
+    )
 
     try:
         result = (
@@ -1214,15 +1274,19 @@ def show_status(chat_id):
             f"🎓 SUST Email: Verified\n"
             f"🚨 Mobile Alarm: {alarm_status}\n"
             f"🚆 Active searches: {active}\n"
-            f"🆔 Your Chat ID: `{chat_id}` (Use this in the App)"
+            f"🆔 Your Chat ID: `{chat_id}` (Use this in the App)",
         )
     except Exception:
-        send_message(chat_id, f"🎓 Your SUST email is verified.\n🚨 Mobile Alarm: {alarm_status}")
+        send_message(
+            chat_id, f"🎓 Your SUST email is verified.\n🚨 Mobile Alarm: {alarm_status}"
+        )
 
 
 # ============================================================
 # HELP
 # ============================================================
+
+App_Link = "https://drive.google.com/file/d/1B6vkhLfOgSPs8RjTUD5Qm7Qu0RQYmJ0O/view?usp=drive_link"
 
 
 def show_help(chat_id):
@@ -1237,13 +1301,17 @@ def show_help(chat_id):
         "/status — Show your status\n"
         "/help — Show this message\n\n"
         "📢 LOUD ALERT App\n"
-        "To receive an Alarm like notification when tickets are found, Install our Android app and enter your Chat ID: " + str(chat_id) + "\n\n"
-        "Class examples:\n"
+        "To receive an Alarm like notification when tickets are found, Install our Android app from "
+        + App_Link
+        + "\nEnter your Chat ID: "
+        + str(chat_id)
+        + " and Register\n\n"
+        f"{BOLD}Class examples:{END}\n"
         "Snigdha\n"
         "S_Chair\n"
         "Snigdha + S_Chair\n"
-        "Snigdha + AC_B + S_Chair\n"
-        "📍 Note 📍\nShared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password",
+        "Snigdha + AC_B + S_Chair\n\n"
+        f"{BOLD}NOTE:{END}\nShared searches can be restarted with one click. For Private searches, you must start a '/new' search every 6 hours to protect your password",
     )
 
 
@@ -1470,42 +1538,57 @@ def telegram_listener():
                 # ====================================================
                 if text.startswith("/rerun_"):
                     old_job_id = text.replace("/rerun_", "").strip()
-                    
+
                     try:
                         # 1. Fetch old job details from Supabase
-                        res = supabase.table("monitoring_jobs").select("*").eq("id", old_job_id).execute()
-                        
+                        res = (
+                            supabase.table("monitoring_jobs")
+                            .select("*")
+                            .eq("id", old_job_id)
+                            .execute()
+                        )
+
                         if not res.data:
-                            send_message(chat_id, "❌ Could not find the original search details.")
+                            send_message(
+                                chat_id,
+                                "❌ Could not find the original search details.",
+                            )
                             continue
-                        
+
                         job = res.data[0]
-                        
+
                         # 2. Set State to choose mode for the rerun
                         set_state(
-                            chat_id, 
-                            "rerun_mode", 
+                            chat_id,
+                            "rerun_mode",
                             from_station=job["from_station"],
                             to_station=job["to_station"],
                             journey_date=job["journey_date"],
                             seat_class=job["seat_class"],
                             desired_trains=job.get("desired_trains", "ALL"),
-                            class_display=job["seat_class"].replace("|", " + ") # Approximation
+                            class_display=job["seat_class"].replace(
+                                "|", " + "
+                            ),  # Approximation
                         )
 
                         markup = {
-                            "keyboard": [[{"text": "🤝 Use Shared Account"}, {"text": "🔐 Use Private Login"}]],
+                            "keyboard": [
+                                [
+                                    {"text": "🤝 Use Shared Account"},
+                                    {"text": "🔐 Use Private Login"},
+                                ]
+                            ],
                             "resize_keyboard": True,
-                            "one_time_keyboard": True
+                            "one_time_keyboard": True,
                         }
 
                         send_message(
                             chat_id,
-                            f"🔄 **Rerunning Search:**\n"
+                            f"🔄 Rerunning Search:\n"
                             f"🚆 {job['from_station']} → {job['to_station']}\n"
                             f"📅 {job['journey_date']}\n\n"
                             "Please choose which login credentials to use:",
-                            reply_markup=markup
+                            reply_markup=markup,
                         )
 
                     except Exception as e:

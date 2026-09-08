@@ -728,7 +728,7 @@ def monitor_loop(page):
                         
                         # Identify which specific users want THIS train
                         matched_jobs = []
-                        jobs_needing_siren = [] # [NEW] specifically for the one-time siren
+                        jobs_needing_siren = []
 
                         for job in current_watchers:
                             pref = str(job.get('desired_trains', 'ALL')).upper()
@@ -736,10 +736,8 @@ def monitor_loop(page):
                             if pref == "ALL" or any(t.strip() in train_name for t in pref.split('+')):
                                 matched_jobs.append(job)
                                 
-                                # [NEW] If this job hasn't had a siren yet, mark it for siren
                                 if job['id'] not in siren_triggered_jobs:
                                     jobs_needing_siren.append(job)
-                                    siren_triggered_jobs.add(job['id'])
 
                         if matched_jobs:
                             print(f"\n🎯 [MATCH] {train_name} for {len(matched_jobs)} users!")
@@ -748,10 +746,10 @@ def monitor_loop(page):
                             # [MODIFIED] 1. Send Telegram for every match
                             for j in matched_jobs:
                                 send_telegram(j['chat_id'], msg)
-                            
-                            # [MODIFIED] 2. Trigger Mobile Siren ONLY for jobs that haven't alerted yet
-                            if jobs_needing_siren:
-                                trigger_mobile_siren(jobs_needing_siren, msg)
+                                if j['id'] in jobs_needing_siren:
+                                    trigger_mobile_siren(jobs_needing_siren, msg)
+                                    siren_triggered_jobs.add(matched_jobs['id'])
+                                    jobs_needing_siren.remove(j)
                             
                             # Mark only their specific jobs as completed
                             matched_ids = [j['id'] for j in matched_jobs]
