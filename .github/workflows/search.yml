@@ -9,8 +9,6 @@ on:
       to_station: { description: 'To', required: true }
       journey_date: { description: 'Date', required: true }
       seat_class: { description: 'Class Regex', required: true }
-      user_phone: { description: 'Phone for session', required: false }
-      user_pass: { description: 'Password for session', required: false } 
       desired_trains:
         description: 'Desired Trains'
         required: false
@@ -69,7 +67,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          RAILWAY_PHONE: ${{ github.event.inputs.user_phone || secrets.RAILWAY_PHONE }}
-          RAILWAY_PASSWORD: ${{ github.event.inputs.user_pass || secrets.RAILWAY_PASSWORD }}
+          RAILWAY_PHONE: ${{ secrets.RAILWAY_PHONE }}
+          RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
           DESIRED_TRAINS: ${{ github.event.inputs.desired_trains }}
         run: xvfb-run -a python bot_backup.py
