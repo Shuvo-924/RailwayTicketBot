@@ -22,10 +22,12 @@ load_dotenv()
 # CONFIG
 # ============================================================
 
-BOLD = '\033[1m'
-ITALIC = '\033[3m'
-UNDERLINE = '\033[4m'
-END = '\033[0m'
+BOLD = '<b>'
+BOLD_END = '</b>'
+ITALIC = '<i>'
+ITALIC_END = '</i>'
+UNDERLINE = '<u>'
+UNDERLINE_END = '</u>'
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -132,7 +134,7 @@ def telegram_request(method, payload=None):
 
 def send_message(chat_id, text, reply_markup=None):
 
-    payload = {"chat_id": chat_id, "text": text}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
 
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -802,18 +804,18 @@ def process_search_message(chat_id, username, text):
         send_message(
             chat_id,
             f"💺 Enter class👇\n"
-            f"{BOLD}Snigdha{END}\n"
-            f"{BOLD}S_Chair{END}\n"
-            f"{BOLD}AC_S{END}\n"
-            f"{BOLD}AC_B{END}\n"
-            f"{BOLD}F_Seat{END}\n"
-            f"{BOLD}F_Chair{END}\n"
-            f"{BOLD}F_Berth{END}\n"
-            f"{BOLD}AC_Chair{END}\n"
-            f"{BOLD}Shovan{END}\n"
-            f"{BOLD}Shulov{END}\n\n"
-            f"e.g. {UNDERLINE}AC_S{END}, "
-            f"{UNDERLINE}Snigdha + S_Chair{END}",
+            f"{BOLD}Snigdha{BOLD_END}\n"
+            f"{BOLD}S_Chair{BOLD_END}\n"
+            f"{BOLD}AC_S{BOLD_END}\n"
+            f"{BOLD}AC_B{BOLD_END}\n"
+            f"{BOLD}F_Seat{BOLD_END}\n"
+            f"{BOLD}F_Chair{BOLD_END}\n"
+            f"{BOLD}F_Berth{BOLD_END}\n"
+            f"{BOLD}AC_Chair{BOLD_END}\n"
+            f"{BOLD}Shovan{BOLD_END}\n"
+            f"{BOLD}Shulov{BOLD_END}\n\n"
+            f"e.g. {UNDERLINE}AC_S{UNDERLINE_END}, "
+            f"{UNDERLINE}Snigdha + S_Chair{UNDERLINE_END}",
         )
         return True
 
@@ -845,8 +847,8 @@ def process_search_message(chat_id, username, text):
         }
         send_message(
             chat_id,
-            f"🚆 Which {ITALIC}Trains{END} do you want to monitor?\n\n"
-            f"Type something like {UNDERLINE}Kalni, Parabat + Upavan{END} etc.\n"
+            f"🚆 Which {ITALIC}Trains{ITALIC_END} do you want to monitor?\n\n"
+            f"Type something like {UNDERLINE}Kalni, Parabat + Upavan{UNDERLINE_END} etc.\n"
             f"Or click 'All Trains'.",
             reply_markup=markup,
         )
@@ -1306,7 +1308,7 @@ def show_help(chat_id):
         + "\nEnter your Chat ID: "
         + str(chat_id)
         + " and Register\n\n"
-        f"{BOLD}Class examples:{END}\n"
+        f"{BOLD}Class examples:{BOLD_END}\n"
         "Snigdha\n"
         "S_Chair\n"
         "Snigdha + S_Chair\n"
