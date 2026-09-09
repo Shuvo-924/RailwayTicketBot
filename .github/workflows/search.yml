@@ -17,38 +17,48 @@ jobs:
   run-search:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout public runner (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: runner
+
+      - name: Checkout private core logic
+        uses: actions/checkout@v4
+        with:
+          repository: Shuvo-924/RailwayTicketBotCore
+          token: ${{ secrets.CORE_REPO_PAT }}
+          path: core
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          # This automatically caches your pip packages based on requirements.txt
           cache: 'pip'
+          cache-dependency-path: core/requirements.txt
 
-      # 1. Cache Playwright Browsers (The biggest download)
+      # 1. Cache Playwright Browsers (the biggest download)
       - name: Cache Playwright Browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('core/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      # 2. Install System Dependencies (Including the required tkinter)
+      # 2. Install system dependencies (including tkinter, chrome)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgbm-dev python3-tk python3-dev google-chrome-stable
 
-      # 3. Install Python Dependencies from requirements.txt
+      # 3. Install Python dependencies from the PRIVATE repo's requirements.txt
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r core/requirements.txt
 
-      # 4. Install Playwright Browsers ONLY if not restored from cache
+      # 4. Install Playwright browsers only if not restored from cache
       - name: Install Playwright Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: playwright install chromium --with-deps
@@ -63,11 +73,12 @@ jobs:
           TO_STATION: ${{ github.event.inputs.to_station }}
           JOURNEY_DATE: ${{ github.event.inputs.journey_date }}
           SEAT_CLASS: ${{ github.event.inputs.seat_class }}
+          DESIRED_TRAINS: ${{ github.event.inputs.desired_trains }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           RAILWAY_PHONE: ${{ secrets.RAILWAY_PHONE }}
           RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
-          DESIRED_TRAINS: ${{ github.event.inputs.desired_trains }}
-        run: xvfb-run -a python bot_backup.py
+        run: xvfb-run -a python core/bot_backup.py
