@@ -812,10 +812,12 @@ def monitor_loop(page):
                             msg = build_ticket_message(train_name, class_name, count)
 
                             # [MODIFIED] 1. Send Telegram for every match
+                            for j in matched_jobs:
+                                send_telegram(j['chat_id'], msg)
                             if jobs_needing_siren:
                                 trigger_mobile_siren(jobs_needing_siren, msg)
-                            for j in jobs_needing_siren:
-                                siren_triggered_jobs.add(j["id"])
+                                for j in jobs_needing_siren:
+                                   siren_triggered_jobs.add(j["id"])
 
                             # Mark only their specific jobs as completed
                             matched_ids = [j["id"] for j in matched_jobs]
