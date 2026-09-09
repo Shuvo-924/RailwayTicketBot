@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from seleniumbase import SB
 from supabase import create_client
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, messaging
 import json
@@ -23,39 +23,52 @@ if not firebase_admin._apps:
     cred = credentials.Certificate(json.loads(fb_secret))
     firebase_admin.initialize_app(cred)
 
+
 def trigger_siren_alarm(message_body):
     print("DEBUG: Starting siren trigger process...")
     try:
         # 1. Find all Chat IDs monitoring this journey
-        jobs_res = supabase.table("monitoring_jobs").select("chat_id").match({
-            "from_station": FROM_STATION,
-            "to_station": TO_STATION,
-            "journey_date": JOURNEY_DATE_INPUT,
-            "status": "running"
-        }).execute()
+        jobs_res = (
+            supabase.table("monitoring_jobs")
+            .select("chat_id")
+            .match(
+                {
+                    "from_station": FROM_STATION,
+                    "to_station": TO_STATION,
+                    "journey_date": JOURNEY_DATE_INPUT,
+                    "status": "running",
+                }
+            )
+            .execute()
+        )
 
         if not jobs_res.data:
             print("DEBUG: No matching jobs found in monitoring_jobs.")
             return
 
-        chat_ids = list(set([str(r['chat_id']) for r in jobs_res.data]))
+        chat_ids = list(set([str(r["chat_id"]) for r in jobs_res.data]))
         print(f"DEBUG: Found {len(chat_ids)} users watching this journey.")
 
         # 2. Get FCM Tokens from the subscribers table
-        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
-        
+        user_res = (
+            supabase.table("subscribers")
+            .select("fcm_token")
+            .in_("chat_id", chat_ids)
+            .execute()
+        )
+
         if not user_res.data:
             print("DEBUG: No tokens found in subscribers table.")
             return
 
-        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
+        tokens = [r["fcm_token"] for r in user_res.data if r.get("fcm_token")]
         print(f"DEBUG: Total valid FCM tokens found: {len(tokens)}")
 
         if not tokens:
             return
 
         # 3. Create the Multicast Message
-        # Note: We ignore the warning about 'tokens' as it is still the standard for 
+        # Note: We ignore the warning about 'tokens' as it is still the standard for
         # reaching device-specific registration tokens.
         message = messaging.MulticastMessage(
             notification=messaging.Notification(
@@ -63,22 +76,25 @@ def trigger_siren_alarm(message_body):
                 body=message_body,
             ),
             android=messaging.AndroidConfig(
-                priority='high',
+                priority="high",
                 notification=messaging.AndroidNotification(
-                    channel_id='railway_siren_v2', # Ensure this matches your Flutter main.dart
-                    sound='iphone_alarm',
+                    channel_id="railway_siren_v2",  # Ensure this matches your Flutter main.dart
+                    sound="iphone_alarm",
                 ),
             ),
             tokens=tokens,
         )
-        
+
         # 4. FIXED: Use send_each_for_multicast instead of send_multicast
         response = messaging.send_each_for_multicast(message)
-        
-        print(f"✅ Alarms triggered: {response.success_count} success, {response.failure_count} failure")
+
+        print(
+            f"✅ Alarms triggered: {response.success_count} success, {response.failure_count} failure"
+        )
 
     except Exception as e:
         print(f"❌ Siren Trigger Error: {e}")
+
 
 # Required to bridge the gap between SeleniumBase's internals and Playwright
 nest_asyncio.apply()
@@ -109,12 +125,14 @@ USERNAME = os.getenv("USERNAME", "").strip()
 SEAT_CLASS_INPUT = os.getenv("SEAT_CLASS", "").strip()
 DESIRED_TRAINS_INPUT = os.getenv("DESIRED_TRAINS", "").strip()
 
+
 def parse_target_trains(value):
     if not value or value.upper() in ["ALL", "ANY", "SKIP"]:
-        return [] # Empty list means all trains
+        return []  # Empty list means all trains
     # Split by +, comma, pipe, or semicolon
     raw = re.split(r"[+,;|]", value)
     return [t.strip().upper() for t in raw if t.strip()]
+
 
 TARGET_TRAINS = parse_target_trains(DESIRED_TRAINS_INPUT)
 
@@ -180,6 +198,7 @@ if len(journey_date_parts) != 3:
 
 
 journey_datetime = datetime.strptime(JOURNEY_DATE_INPUT, "%Y-%m-%d")
+
 
 def parse_target_classes(value):
     """
@@ -256,6 +275,7 @@ def parse_target_classes(value):
 
 TARGET_CLASSES = parse_target_classes(SEAT_CLASS_INPUT)
 
+
 def parse_journey_date(value):
     value = value.strip()
     # Try common formats
@@ -264,15 +284,15 @@ def parse_journey_date(value):
             return datetime.strptime(value, fmt)
         except ValueError:
             continue
-    
+
     # Fallback: manually detect YYYY-MM-DD vs DD-MM-YYYY
     numbers = re.findall(r"\d+", value)
     if len(numbers) != 3:
         raise ValueError(f"Invalid date: {value}")
-    
-    if len(numbers[0]) == 4: # YYYY-MM-DD
+
+    if len(numbers[0]) == 4:  # YYYY-MM-DD
         return datetime(int(numbers[0]), int(numbers[1]), int(numbers[2]))
-    else: # DD-MM-YYYY
+    else:  # DD-MM-YYYY
         return datetime(int(numbers[2]), int(numbers[1]), int(numbers[0]))
 
 
@@ -409,14 +429,21 @@ def notify_user(message):
 
     try:
         # Query for all running jobs with the same parameters
-        res = supabase.table("monitoring_jobs").select("chat_id").match({
-            "from_station": FROM_STATION,
-            "to_station": TO_STATION,
-            "journey_date": JOURNEY_DATE_INPUT,
-            "seat_class": SEAT_CLASS_INPUT,
-            "desired_trains": DESIRED_TRAINS_INPUT,
-            "status": "running"
-        }).execute()
+        res = (
+            supabase.table("monitoring_jobs")
+            .select("chat_id")
+            .match(
+                {
+                    "from_station": FROM_STATION,
+                    "to_station": TO_STATION,
+                    "journey_date": JOURNEY_DATE_INPUT,
+                    "seat_class": SEAT_CLASS_INPUT,
+                    "desired_trains": DESIRED_TRAINS_INPUT,
+                    "status": "running",
+                }
+            )
+            .execute()
+        )
 
         if res.data:
             # Create a unique set of chat IDs to avoid duplicate messages to one person
@@ -487,7 +514,7 @@ def select_station(page, field_id, station):
 
 def select_date(page, date_string):
     print(f"Selecting date: {date_string}")
-    
+
     # Use robust parsing to get a datetime object
     try:
         dt = parse_journey_date(date_string)
@@ -502,22 +529,36 @@ def select_date(page, date_string):
     page.locator("#doj").click()
     page.wait_for_timeout(500)
     datepicker = page.locator("#ui-datepicker-div")
-    
+
     month_map = {
-        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
+        "January": 1,
+        "February": 2,
+        "March": 3,
+        "April": 4,
+        "May": 5,
+        "June": 6,
+        "July": 7,
+        "August": 8,
+        "September": 9,
+        "October": 10,
+        "November": 11,
+        "December": 12,
     }
 
     # Navigate to the correct Month/Year
     for _ in range(24):
         m_name = datepicker.locator(".ui-datepicker-month").inner_text().strip()
         y_val = int(datepicker.locator(".ui-datepicker-year").inner_text().strip())
-        
+
         if y_val == year and month_map[m_name] == month:
             break
-            
+
         # Click Next if target is in the future, Prev if in the past
-        btn = "a.ui-datepicker-next" if (year * 12 + month) > (y_val * 12 + month_map[m_name]) else "a.ui-datepicker-prev"
+        btn = (
+            "a.ui-datepicker-next"
+            if (year * 12 + month) > (y_val * 12 + month_map[m_name])
+            else "a.ui-datepicker-prev"
+        )
         datepicker.locator(btn).click()
         page.wait_for_timeout(300)
 
@@ -525,7 +566,7 @@ def select_date(page, date_string):
     day_cell = datepicker.locator(
         f'td[data-handler="selectDay"][data-month="{month - 1}"][data-year="{year}"]'
     ).get_by_text(str(day), exact=True)
-    
+
     day_cell.click()
     return True
 
@@ -592,73 +633,92 @@ signal.signal(signal.SIGINT, handle_shutdown_signal)
 def get_active_watchers():
     """Fetches all users currently waiting for this specific route/date/class."""
     try:
-        res = supabase.table("monitoring_jobs").select("id, chat_id, desired_trains").match({
-            "from_station": FROM_STATION,
-            "to_station": TO_STATION,
-            "journey_date": JOURNEY_DATE_INPUT,
-            "seat_class": SEAT_CLASS_INPUT,
-            "status": "running"
-        }).execute()
+        res = (
+            supabase.table("monitoring_jobs")
+            .select("id, chat_id, desired_trains")
+            .match(
+                {
+                    "from_station": FROM_STATION,
+                    "to_station": TO_STATION,
+                    "journey_date": JOURNEY_DATE_INPUT,
+                    "seat_class": SEAT_CLASS_INPUT,
+                    "status": "running",
+                }
+            )
+            .execute()
+        )
         return res.data or []
     except Exception as e:
         print(f"Error fetching watchers: {e}")
         return []
 
+
 def notify_specific_users(jobs, message_text):
     """Sends Telegram + Siren only to the users provided in the jobs list."""
-    # We use a set of chat_ids to ensure we don't send the same message 
+    # We use a set of chat_ids to ensure we don't send the same message
     # twice to one person if they have multiple identical jobs
-    chat_ids = list(set([str(j['chat_id']) for j in jobs]))
-    
+    chat_ids = list(set([str(j["chat_id"]) for j in jobs]))
+
     # 1. Send Telegram Messages
     for cid in chat_ids:
         send_telegram(cid, message_text)
-    
+
     # 2. Trigger Mobile Siren (Multicast to all tokens)
     try:
-      user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
-      tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
-      if tokens:
-        messages = []
-        for token in tokens:
-            messages.append(
-                messaging.Message(
-                    token=token,
-                    # Hybrid Payload: Notification to wake system, Data to wake Flutter
-                    notification=messaging.Notification(
-                        title="🚨 TICKET FOUND!",
-                        body="Open the app to stop the siren!",
-                    ),
-                    data={
-                        "trigger": "start_alarm", # This matches your Flutter logic
-                        "body": message_text
-                    },
-                    android=messaging.AndroidConfig(
-                        priority='high',
-                        notification=messaging.AndroidNotification(
-                            channel_id='railway_alarm_v2', # MATCHES Flutter/Manifest
-                            sound='iphone_alarm',
-                            sticky=True,
+        user_res = (
+            supabase.table("subscribers")
+            .select("fcm_token")
+            .in_("chat_id", chat_ids)
+            .execute()
+        )
+        tokens = [r["fcm_token"] for r in user_res.data if r.get("fcm_token")]
+        if tokens:
+            messages = []
+            for token in tokens:
+                messages.append(
+                    messaging.Message(
+                        token=token,
+                        # Hybrid Payload: Notification to wake system, Data to wake Flutter
+                        notification=messaging.Notification(
+                            title="🚨 TICKET FOUND!",
+                            body="Open the app to stop the siren!",
                         ),
-                    ),
+                        data={
+                            "trigger": "start_alarm",  # This matches your Flutter logic
+                            "body": message_text,
+                        },
+                        android=messaging.AndroidConfig(
+                            priority="high",
+                            notification=messaging.AndroidNotification(
+                                channel_id="railway_alarm_v2",  # MATCHES Flutter/Manifest
+                                sound="iphone_alarm",
+                                sticky=True,
+                            ),
+                        ),
+                    )
                 )
-            )
 
-        # 4. Send the batch
-        # send_each replaces send_multicast and send_all in newer SDKs
-        response = messaging.send_each(messages)
-        
-        print(f"✅ Batch complete: {response.success_count} successful alarms.")
+            # 4. Send the batch
+            # send_each replaces send_multicast and send_all in newer SDKs
+            response = messaging.send_each(messages)
+
+            print(f"✅ Batch complete: {response.success_count} successful alarms.")
     except Exception as e:
         print(f"❌ Siren Trigger Error: {e}")
 
+
 def trigger_mobile_siren(jobs, message_text):
     """Triggers ONLY the Mobile Alarm/Siren (FCM) for the provided jobs."""
-    chat_ids = list(set([str(j['chat_id']) for j in jobs]))
+    chat_ids = list(set([str(j["chat_id"]) for j in jobs]))
     try:
-        user_res = supabase.table("subscribers").select("fcm_token").in_("chat_id", chat_ids).execute()
-        tokens = [r['fcm_token'] for r in user_res.data if r.get('fcm_token')]
-        
+        user_res = (
+            supabase.table("subscribers")
+            .select("fcm_token")
+            .in_("chat_id", chat_ids)
+            .execute()
+        )
+        tokens = [r["fcm_token"] for r in user_res.data if r.get("fcm_token")]
+
         if tokens:
             messages = [
                 messaging.Message(
@@ -669,37 +729,42 @@ def trigger_mobile_siren(jobs, message_text):
                     ),
                     data={"trigger": "start_alarm", "body": message_text},
                     android=messaging.AndroidConfig(
-                        priority='high',
+                        priority="high",
                         notification=messaging.AndroidNotification(
-                            channel_id='railway_alarm_v2',
-                            sound='iphone_alarm',
+                            channel_id="railway_alarm_v2",
+                            sound="iphone_alarm",
                             sticky=True,
                         ),
                     ),
-                ) for token in tokens
+                )
+                for token in tokens
             ]
             messaging.send_each(messages)
             print(f"✅ One-time Siren triggered for {len(tokens)} devices.")
     except Exception as e:
         print(f"❌ Mobile Siren Error: {e}")
 
+
 def monitor_loop(page):
     print("\n🚀 MULTI-USER MONITORING ACTIVE")
     refresh_start = time.time()
-    
+
     # [NEW] Track which Job IDs have already had their siren triggered in this session
     siren_triggered_jobs = set()
-    
+
     while True:
         # 1. GLOBAL TIMEOUT CHECK (6 Hours)
         if (time.time() - SCRIPT_START_TIME) > MAX_RUNTIME_SECONDS:
             print("\n⏰ 6-hour limit reached. Sending individual rerun links.")
             active_jobs = get_active_watchers()
-            
+
             if active_jobs:
                 # Group 1: Trigger sirens for everyone at once (generic text is fine for siren)
-                notify_specific_users(active_jobs, f"⏳ Monitor Timeout for {FROM_STATION} → {TO_STATION}. Check Telegram for rerun link.")
-                
+                notify_specific_users(
+                    active_jobs,
+                    f"⏳ Monitor Timeout for {FROM_STATION} → {TO_STATION}. Check Telegram for rerun link.",
+                )
+
                 # Group 2: Send UNIQUE Telegram links for each specific Job ID
                 for job in active_jobs:
                     personal_rerun_msg = (
@@ -708,8 +773,8 @@ def monitor_loop(page):
                         f"To continue for another 6 hours, click your personal link below:\n"
                         f"/rerun_{job['id']}"
                     )
-                    send_telegram(job['chat_id'], personal_rerun_msg)
-            
+                    send_telegram(job["chat_id"], personal_rerun_msg)
+
             update_job_status("completed")
             return
 
@@ -721,40 +786,43 @@ def monitor_loop(page):
 
         try:
             data = get_seats_from_page(page)
-            
+
             for train_name, classes in data.items():
                 for class_name, count in classes.items():
                     if count > 0 and class_name in TARGET_CLASSES:
-                        
                         # Identify which specific users want THIS train
                         matched_jobs = []
                         jobs_needing_siren = []
 
                         for job in current_watchers:
-                            pref = str(job.get('desired_trains', 'ALL')).upper()
+                            pref = str(job.get("desired_trains", "ALL")).upper()
                             # Match if user chose ALL or if train name contains their preference
-                            if pref == "ALL" or any(t.strip() in train_name for t in pref.split('+')):
+                            if pref == "ALL" or any(
+                                t.strip() in train_name for t in pref.split("+")
+                            ):
                                 matched_jobs.append(job)
-                                
-                                if job['id'] not in siren_triggered_jobs:
+
+                                if job["id"] not in siren_triggered_jobs:
                                     jobs_needing_siren.append(job)
 
                         if matched_jobs:
-                            print(f"\n🎯 [MATCH] {train_name} for {len(matched_jobs)} users!")
+                            print(
+                                f"\n🎯 [MATCH] {train_name} for {len(matched_jobs)} users!"
+                            )
                             msg = build_ticket_message(train_name, class_name, count)
-                            
+
                             # [MODIFIED] 1. Send Telegram for every match
-                            for j in matched_jobs:
-                                send_telegram(j['chat_id'], msg)
-                                if j['id'] in jobs_needing_siren:
-                                    trigger_mobile_siren(jobs_needing_siren, msg)
-                                    siren_triggered_jobs.add(matched_jobs['id'])
-                                    jobs_needing_siren.remove(j)
-                            
+                            if jobs_needing_siren:
+                                trigger_mobile_siren(jobs_needing_siren, msg)
+                            for j in jobs_needing_siren:
+                                siren_triggered_jobs.add(j["id"])
+
                             # Mark only their specific jobs as completed
-                            matched_ids = [j['id'] for j in matched_jobs]
-                            supabase.table("monitoring_jobs").update({"status": "completed"}).in_("id", matched_ids).execute()
-                            
+                            matched_ids = [j["id"] for j in matched_jobs]
+                            supabase.table("monitoring_jobs").update(
+                                {"status": "completed"}
+                            ).in_("id", matched_ids).execute()
+
             # 4. Hard Refresh
             if time.time() - refresh_start >= HARD_REFRESH_SECONDS:
                 page.reload(wait_until="domcontentloaded")
