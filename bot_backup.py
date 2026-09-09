@@ -762,7 +762,7 @@ def monitor_loop(page):
                 refresh_start = time.time()
 
             # 5. Date Check
-            if datetime.now() > journey_datetime + timedelta(hours=9):
+            if datetime.now() > journey_datetime + timedelta(hours=21):
                 update_job_status("completed")
                 return
 
