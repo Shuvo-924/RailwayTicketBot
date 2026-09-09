@@ -1,7 +1,0 @@
-playwright
-seleniumbase
-supabase
-requests
-python-dotenv
-nest_asyncio
-firebase-admin
