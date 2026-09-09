@@ -22,10 +22,10 @@ load_dotenv()
 # CONFIG
 # ============================================================
 
-BOLD = "\033[1m"
-ITALIC = "\033[3m"
-UNDERLINE = "\033[4m"
-END = "\033[0m"
+BOLD = '\033[1m'
+ITALIC = '\033[3m'
+UNDERLINE = '\033[4m'
+END = '\033[0m'
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
