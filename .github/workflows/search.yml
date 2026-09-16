@@ -44,34 +44,29 @@ on:
         default: 'ALL'
         type: string
 
+permissions:
+  contents: read
+  packages: read        
+
 jobs:
   run-search:
     runs-on: ubuntu-latest
 
     steps:
-      # Public repository
-      - name: Checkout public runner
-        uses: actions/checkout@v4
+      # Login to GHCR
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          path: runner
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Private repository
-      - name: Checkout private core logic
-        uses: actions/checkout@v4
-        with:
-          repository: Shuvo-924/RailwayTicketBotCore
-          token: ${{ secrets.CORE_REPO_PAT }}
-          path: core
-
-      # Build Docker image
-      - name: Build Docker image
+      # Pull the already-built image
+      - name: Pull Railway Search image
         run: |
-          docker build \
-            -f runner/Dockerfile \
-            -t railway-search:latest \
-            .
+          docker pull ghcr.io/shuvo-924/railway-search:latest
 
-      # Run Docker container
+      # Run the search
       - name: Run Monitor
         env:
           CI: "true"
@@ -111,4 +106,4 @@ jobs:
             -e FIREBASE_SERVICE_ACCOUNT \
             -e RAILWAY_PHONE \
             -e RAILWAY_PASSWORD \
-            railway-search:latest
+            ghcr.io/shuvo-924/railway-search:latest

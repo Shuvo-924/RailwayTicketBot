@@ -1,0 +1,48 @@
+name: Build Railway Search Docker Image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout public repository
+      - name: Checkout public runner
+        uses: actions/checkout@v4
+        with:
+          path: runner
+
+      # Checkout private core repository
+      - name: Checkout private core
+        uses: actions/checkout@v4
+        with:
+          repository: Shuvo-924/RailwayTicketBotCore
+          token: ${{ secrets.CORE_REPO_PAT }}
+          path: core
+
+      # Login to GitHub Container Registry
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f runner/Dockerfile \
+            -t ghcr.io/shuvo-924/railway-search:latest \
+            .
+
+      # Push image to GHCR
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/shuvo-924/railway-search:latest
