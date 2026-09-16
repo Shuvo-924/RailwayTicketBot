@@ -19,5 +19,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 RUN playwright install chromium --with-deps
 
-ENTRYPOINT ["xvfb-run", "-a"]
 CMD ["python", "-u", "core/bot_backup.py"]
