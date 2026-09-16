@@ -10,15 +10,16 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      # Checkout public repository
+      # Checkout public runner repo (holds the Dockerfile)
       - name: Checkout public runner
         uses: actions/checkout@v4
         with:
           path: runner
 
-      # Checkout private core repository
+      # Checkout private core repo (holds bot_backup.py + requirements.txt)
       - name: Checkout private core
         uses: actions/checkout@v4
         with:

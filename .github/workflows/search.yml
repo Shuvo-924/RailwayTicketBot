@@ -46,11 +46,14 @@ on:
 
 permissions:
   contents: read
-  packages: read        
+  packages: read
 
 jobs:
   run-search:
     runs-on: ubuntu-latest
+    # Absolute ceiling. Your script self-terminates at ~5.75h (MAX_RUNTIME_SECONDS).
+    # GitHub-hosted runners cap at 360 minutes (6h).
+    timeout-minutes: 355
 
     steps:
       # Login to GHCR
@@ -68,9 +71,11 @@ jobs:
 
       # Run the search
       - name: Run Monitor
+        timeout-minutes: 350
         env:
           CI: "true"
 
+          # Job inputs (from workflow_dispatch)
           JOB_ID: ${{ inputs.job_id }}
           CHAT_ID: ${{ inputs.chat_id }}
           USERNAME: ${{ inputs.username }}
@@ -80,6 +85,11 @@ jobs:
           SEAT_CLASS: ${{ inputs.seat_class }}
           DESIRED_TRAINS: ${{ inputs.desired_trains }}
 
+          # Auto-injected by GitHub — script stores this in Supabase
+          # so /cancel can identify the exact run.
+          GITHUB_RUN_ID: ${{ github.run_id }}
+
+          # Secrets
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -89,7 +99,8 @@ jobs:
           RAILWAY_PASSWORD: ${{ secrets.RAILWAY_PASSWORD }}
 
         run: |
-          docker run --rm \
+          docker run --rm --init \
+            --name railway-search-${{ github.run_id }} \
             -e CI \
             -e JOB_ID \
             -e CHAT_ID \
@@ -99,6 +110,7 @@ jobs:
             -e JOURNEY_DATE \
             -e SEAT_CLASS \
             -e DESIRED_TRAINS \
+            -e GITHUB_RUN_ID \
             -e TELEGRAM_BOT_TOKEN \
             -e TELEGRAM_CHAT_ID \
             -e SUPABASE_URL \
