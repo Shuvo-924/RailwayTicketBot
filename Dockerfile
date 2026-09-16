@@ -70,4 +70,5 @@ RUN playwright install chromium --with-deps
 
 # SeleniumBase manages its own Xvfb when xvfb=True, so we do NOT
 # wrap the entrypoint with xvfb-run.
-CMD ["python", "-u", "core/bot_backup.py"]
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24x24", \
+     "python", "-u", "core/bot_backup.py"]
