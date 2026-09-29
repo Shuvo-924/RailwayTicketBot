@@ -43,6 +43,15 @@ on:
         required: false
         default: 'ALL'
         type: string
+      desired_seats:
+        description: 'Desired Seats'
+        required: false
+        type: string
+
+      fallback_seats:
+        description: 'Fallback Seats'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -84,6 +93,8 @@ jobs:
           JOURNEY_DATE: ${{ inputs.journey_date }}
           SEAT_CLASS: ${{ inputs.seat_class }}
           DESIRED_TRAINS: ${{ inputs.desired_trains }}
+          DESIRED_SEATS: ${{ inputs.desired_seats }}
+          FALLBACK_SEATS: ${{ inputs.fallback_seats }}
 
           # Auto-injected by GitHub — script stores this in Supabase
           # so /cancel can identify the exact run.
@@ -110,6 +121,8 @@ jobs:
             -e JOURNEY_DATE \
             -e SEAT_CLASS \
             -e DESIRED_TRAINS \
+            -e DESIRED_SEATS \
+            -e FALLBACK_SEATS \
             -e GITHUB_RUN_ID \
             -e TELEGRAM_BOT_TOKEN \
             -e TELEGRAM_CHAT_ID \
