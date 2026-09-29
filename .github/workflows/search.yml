@@ -112,6 +112,7 @@ jobs:
         run: |
           docker run --rm --init \
             --name railway-search-${{ github.run_id }} \
+            --shm-size=2g \
             -e CI \
             -e JOB_ID \
             -e CHAT_ID \

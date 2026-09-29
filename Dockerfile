@@ -41,7 +41,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     libxtst6 \
     libappindicator3-1 \
+    x11vnc \
+    websockify \
+    novnc \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Cloudflared binary
+RUN curl -fsSL -o /usr/local/bin/cloudflared \
+    https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+    && chmod +x /usr/local/bin/cloudflared
 
 # ------------------------------------------------------------------
 # 2. Install Google Chrome (stable)
