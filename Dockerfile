@@ -11,7 +11,7 @@ ENV DISPLAY=
 WORKDIR /app
 
 # ------------------------------------------------------------------
-# 1. System Dependencies (Xvfb and essential libraries for Chrome)
+# 1. System Dependencies (Xvfb, ffmpeg for recording, Chrome deps)
 # ------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
@@ -44,8 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11vnc \
     websockify \
     novnc \
-    curl \
-    ca-certificates \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Cloudflared binary
@@ -84,8 +83,6 @@ RUN seleniumbase install chromedriver \
 # ------------------------------------------------------------------
 # 5. Prepare the X11 Socket Directory
 # ------------------------------------------------------------------
-# Ensure the directory for X11 sockets exists with correct permissions.
 RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
-# Do NOT wrap the entrypoint with xvfb-run. SeleniumBase handles it.
 CMD ["python", "-u", "core/bot_backup.py"]
