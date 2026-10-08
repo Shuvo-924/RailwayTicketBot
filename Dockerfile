@@ -14,9 +14,6 @@ WORKDIR /app
 # 1. System Dependencies (Xvfb, ffmpeg for recording, Chrome deps)
 # ------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    fonts-bengali \
-    fonts-noto \
-    fonts-noto-cjk \
     xvfb \
     x11-utils \
     xauth \
@@ -43,7 +40,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libxss1 \
     libxtst6 \
-    libappindicator3-1 \
     x11vnc \
     websockify \
     novnc \
